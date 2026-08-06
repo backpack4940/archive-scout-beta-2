@@ -1,0 +1,228 @@
+name: Apply Beta 2.1 Launch Fix (Safe)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  patch-test-and-build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-runtime.txt
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-runtime.txt
+          python -m pip check
+
+      - name: Apply Beta 2.1 source patch
+        shell: bash
+        run: |
+          cat > /tmp/beta21.patch.b64 <<'PATCH'
+          ZGlmZiAtLWdpdCBhL0NIQU5HRUxPRy5tZCBiL0NIQU5HRUxPRy5tZAppbmRleCA2YmJlNDVkLi5i
+          ZDQ3NTlkIDEwMDY0NAotLS0gYS9DSEFOR0VMT0cubWQKKysrIGIvQ0hBTkdFTE9HLm1kCkBAIC0x
+          LDUgKzEsMTMgQEAKICMgQ2hhbmdlbG9nCiAKKyMjIDMuMC4wLWJldGEuMi4xCisKKy0gRml4ZWQg
+          dGhlIG1hY09TIGxhdW5jaCByZWdyZXNzaW9uIHdoZXJlIGBBcmNoaXZlU2NvdXRBcHBgIGluc3Rh
+          bnRpYXRlZCBgQ29hbGVzY2luZ0V2ZW50UXVldWVgIHdpdGhvdXQgaW1wb3J0aW5nIGl0LCBjYXVz
+          aW5nIHRoZSBhcHAgaWNvbiB0byBib3VuY2Ugb25jZSBhbmQgcXVpdCBiZWZvcmUgdGhlIHdpbmRv
+          dyBhcHBlYXJlZC4KKy0gQWRkZWQgYSByZWdyZXNzaW9uIHRlc3QgdGhhdCB2ZXJpZmllcyB0aGUg
+          Ym91bmRlZCBldmVudCBxdWV1ZSBpcyBhdmFpbGFibGUgZnJvbSB0aGUgbWFpbi13aW5kb3cgbW9k
+          dWxlLgorLSBBZGRlZCBhIHBhY2thZ2VkIG1hY09TIHN0YXJ0dXAgcHJvYmUgdG8gdGhlIHJlbGVh
+          c2UgYnVpbGQgc28gaW1tZWRpYXRlIEdVSSBzdGFydHVwIGZhaWx1cmVzIGZhaWwgQ0kgaW5zdGVh
+          ZCBvZiByZWFjaGluZyB1c2Vycy4KKy0gQWRkZWQgYSBwZXJzaXN0ZW50IHN0YXJ0dXAtZXJyb3Ig
+          bG9nIGFuZCBuYXRpdmUgbWFjT1MgYWxlcnQgZm9yIGZhaWx1cmVzIHRoYXQgb2NjdXIgYmVmb3Jl
+          IHRoZSBtYWluIHdpbmRvdyBvcGVucy4KKy0gUHJlc2VydmVkIGRhdGFiYXNlIHNjaGVtYSB2ZXJz
+          aW9uIDUgYW5kIGV4aXN0aW5nIHByb2plY3QgY29tcGF0aWJpbGl0eS4KKwogIyMgVW5yZWxlYXNl
+          ZCDigJQgQmV0YSAyIGhhcmRlbmluZwogCiAtIFJlbW92ZWQgZnVsbCBkb2N1bWVudCBib2RpZXMg
+          ZnJvbSBwYWdpbmF0ZWQgcmVzdWx0LXRhYmxlIHJvd3MgYW5kIHVuaWZpZWQgcmVzdWx0IGZpbHRl
+          cnMgZm9yIGRldGVybWluaXN0aWMsIGxvd2VyLW1lbW9yeSBicm93c2luZy4KZGlmZiAtLWdpdCBh
+          L1JFQURNRS5tZCBiL1JFQURNRS5tZAppbmRleCA4ZjM4ZmI5Li5hMTNjZGM1IDEwMDY0NAotLS0g
+          YS9SRUFETUUubWQKKysrIGIvUkVBRE1FLm1kCkBAIC0yLDEzICsyLDEzIEBACiAKIEFyY2hpdmUg
+          U2NvdXQgaXMgYSBjcm9zcy1wbGF0Zm9ybSBkZXNrdG9wIHJlc2VhcmNoIGFwcGxpY2F0aW9uIGZv
+          ciBpbmRleGluZyBwdWJsaWMgV2F5YmFjayBNYWNoaW5lIGNhcHR1cmVzLCBkb3dubG9hZGluZyBh
+          cmNoaXZlZCBwYWdlcyBhbmQgbWVkaWEsIHNlYXJjaGluZyBzYXZlZCBtYXRlcmlhbCwgcmVjb25z
+          dHJ1Y3RpbmcgZm9ydW1zLCByZWNvdmVyaW5nIGxlZ2FjeSBlbWJlZHMsIGNvbXBhcmluZyBzbmFw
+          c2hvdHMsIGFuZCByZXZpZXdpbmcgbGFyZ2UgYXJjaGl2ZSBwcm9qZWN0cy4KIAotQXJjaGl2ZSBT
+          Y291dCAzLjAgQmV0YSAxLjYgaXMgdGhlIGN1cnJlbnQgc291cmNlIHJlbGVhc2UuIEl0IHByZXNl
+          cnZlcyBkYXRhYmFzZSBzY2hlbWEgdmVyc2lvbiA1IGFuZCB0aGUgZXN0YWJsaXNoZWQgcHJvamVj
+          dCBmb3JtYXQgd2hpbGUgY29tYmluaW5nIHRoZSBCZXRhIDEgaW5kZXhpbmcsIG5ldHdvcmstcmVj
+          b3ZlcnksIG1lZGlhLCBhbmQgbGFyZ2UtcHJvamVjdCBzdGFiaWxpdHkgd29yay4gVGhlIHJlcG9z
+          aXRvcnkgYWxzbyBjb250YWlucyBhbiB1bnJlbGVhc2VkIEJldGEgMiBoYXJkZW5pbmcgcGFzcyBm
+          b2N1c2VkIG9uIG1lYXN1cmVkIG1lbW9yeSB1c2UsIHNhZmUgZXhwb3J0cyBhbmQgbWVyZ2VzLCBy
+          ZXNwb25zaXZlIHJldmlldyB0YWJsZXMsIGFuZCBjcm9zcy1wbGF0Zm9ybSB2YWxpZGF0aW9uLgor
+          QXJjaGl2ZSBTY291dCAzLjAgQmV0YSAyLjEgaXMgdGhlIGN1cnJlbnQgc291cmNlIHJlbGVhc2Uu
+          IEl0IHByZXNlcnZlcyBkYXRhYmFzZSBzY2hlbWEgdmVyc2lvbiA1IGFuZCB0aGUgZXN0YWJsaXNo
+          ZWQgcHJvamVjdCBmb3JtYXQgd2hpbGUgY29tYmluaW5nIHRoZSBCZXRhIDEgaW5kZXhpbmcsIG5l
+          dHdvcmstcmVjb3ZlcnksIG1lZGlhLCBhbmQgbGFyZ2UtcHJvamVjdCBzdGFiaWxpdHkgd29yayB3
+          aXRoIHRoZSBCZXRhIDIgbWVtb3J5LCBleHBvcnQsIG1lcmdlLCBpbnRlcmZhY2UsIGRpYWdub3N0
+          aWNzLCBhbmQgY3Jvc3MtcGxhdGZvcm0gaGFyZGVuaW5nIHBhc3MuIEJldGEgMi4xIGZpeGVzIHRo
+          ZSBpbW1lZGlhdGUgbWFjT1Mgc3RhcnR1cCBmYWlsdXJlIHByZXNlbnQgaW4gdGhlIGluaXRpYWwg
+          QmV0YSAyIHBhY2thZ2UuCiAKIE9uZSByZXBvc2l0b3J5IHByb2R1Y2VzIGJ1aWxkcyBmb3IgV2lu
+          ZG93cyB4NjQsIExpbnV4IHg2NCwgYW5kIHVuaXZlcnNhbCBtYWNPUyBmb3IgSW50ZWwgYW5kIEFw
+          cGxlIFNpbGljb24uCiAKLSMjIFVucmVsZWFzZWQgQmV0YSAyIGhhcmRlbmluZworIyMgQmV0YSAy
+          IGhhcmRlbmluZwogCi1UaGUgY3VycmVudCBvcHRpbWl6YXRpb24gYnJhbmNoIGtlZXBzIHRoZSBw
+          dWJsaWMgdmVyc2lvbiBpZGVudGlmaWVycyB1bmNoYW5nZWQgdW50aWwgYSByZWxlYXNlIG51bWJl
+          ciBpcyBjaG9zZW4gdGhyb3VnaCB0aGUgbm9ybWFsIHJlbGVhc2UgcHJvY2Vzcy4gSXQgYWRkczoK
+          K0JldGEgMiBhZGRzOgogCiAtIGJvdW5kZWQsIGJvZHktZnJlZSByZXN1bHQtdGFibGUgcXVlcmll
+          cyB3aXRoIGRldGVybWluaXN0aWMgcGFnaW5hdGlvbjsKIC0gaW5jcmVtZW50YWwgYXRvbWljIEpT
+          T04sIENTViwgYW5kIE1hcmtkb3duIGV4cG9ydHM7CmRpZmYgLS1naXQgYS9SRUxFQVNFX05PVEVT
+          Lm1kIGIvUkVMRUFTRV9OT1RFUy5tZAppbmRleCA3ZDk5YTI0Li4zYWZhNjgwIDEwMDY0NAotLS0g
+          YS9SRUxFQVNFX05PVEVTLm1kCisrKyBiL1JFTEVBU0VfTk9URVMubWQKQEAgLTEsMyArMSwxMSBA
+          QAorIyBBcmNoaXZlIFNjb3V0IDMuMCBCZXRhIDIuMQorCitCZXRhIDIuMSBmaXhlcyBhIG1hY09T
+          IGxhdW5jaCByZWdyZXNzaW9uIGludHJvZHVjZWQgYnkgdGhlIEJldGEgMiBib3VuZGVkIGV2ZW50
+          IHF1ZXVlLiBUaGUgbWFpbiB3aW5kb3cgbm93IGltcG9ydHMgdGhlIHF1ZXVlIGltcGxlbWVudGF0
+          aW9uIGl0IGluc3RhbnRpYXRlcyBkdXJpbmcgc3RhcnR1cCwgcHJldmVudGluZyB0aGUgYXBwbGlj
+          YXRpb24gaWNvbiBmcm9tIGJvdW5jaW5nIG9uY2UgYW5kIGltbWVkaWF0ZWx5IHF1aXR0aW5nLgor
+          CitUaGUgcGF0Y2ggYWxzbyBhZGRzIGEgcGFja2FnZWQtYXBwIHN0YXJ0dXAgcHJvYmUgdG8gdGhl
+          IG1hY09TIGJ1aWxkLCBhIHJlZ3Jlc3Npb24gdGVzdCB0aGF0IHZlcmlmaWVzIHRoZSBxdWV1ZSBp
+          cyBhdmFpbGFibGUgaW4gdGhlIG1haW4td2luZG93IG1vZHVsZSwgYW5kIGEgcGVyc2lzdGVudCBz
+          dGFydHVwLWVycm9yIGxvZyB3aXRoIGEgbmF0aXZlIG1hY09TIGFsZXJ0IHNvIGZ1dHVyZSBwcmUt
+          d2luZG93IGZhaWx1cmVzIGFyZSBubyBsb25nZXIgc2lsZW50LiBEYXRhYmFzZSBzY2hlbWEgdmVy
+          c2lvbiA1IGFuZCBleGlzdGluZyBwcm9qZWN0IGZpbGVzIGFyZSB1bmNoYW5nZWQuCisKKy0tLQor
+          CiAjIFVucmVsZWFzZWQgQmV0YSAyIGhhcmRlbmluZwogCiBUaGlzIGJyYW5jaCBpcyBhbiB1bnJl
+          bGVhc2VkIHByb2R1Y3Rpb24taGFyZGVuaW5nIHBhc3Mgb3ZlciBBcmNoaXZlIFNjb3V0IDMuMCBC
+          ZXRhIDEuNi4gSXQgZG9lcyBub3QgY2hhbmdlIHNjaGVtYSB2ZXJzaW9uIDUsIHRoZSBwcm9qZWN0
+          IGZvcm1hdCwgb3IgdGhlIGV4aXN0aW5nIHZlcnNpb24gaWRlbnRpZmllcnMuCmRpZmYgLS1naXQg
+          YS9hcmNoaXZlX3Njb3V0L2NvbnN0YW50cy5weSBiL2FyY2hpdmVfc2NvdXQvY29uc3RhbnRzLnB5
+          CmluZGV4IDY2NGIyMTIuLjM3NGIzYmEgMTAwNjQ0Ci0tLSBhL2FyY2hpdmVfc2NvdXQvY29uc3Rh
+          bnRzLnB5CisrKyBiL2FyY2hpdmVfc2NvdXQvY29uc3RhbnRzLnB5CkBAIC0xLDYgKzEsNiBAQAog
+          ZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwogCi1WRVJTSU9OID0gIjMuMC4wLWJl
+          dGEuMS42IgorVkVSU0lPTiA9ICIzLjAuMC1iZXRhLjIuMSIKIFNDSEVNQV9WRVJTSU9OID0gNQog
+          QVBQX05BTUUgPSAiQXJjaGl2ZSBTY291dCAzLjAiCiBDRFhfVVJMID0gImh0dHBzOi8vd2ViLmFy
+          Y2hpdmUub3JnL2NkeC9zZWFyY2gvY2R4IgpkaWZmIC0tZ2l0IGEvYXJjaGl2ZV9zY291dC91aS9t
+          YWluX3dpbmRvdy5weSBiL2FyY2hpdmVfc2NvdXQvdWkvbWFpbl93aW5kb3cucHkKaW5kZXggZjFh
+          Y2JhNC4uOGE0MDY4NCAxMDA2NDQKLS0tIGEvYXJjaGl2ZV9zY291dC91aS9tYWluX3dpbmRvdy5w
+          eQorKysgYi9hcmNoaXZlX3Njb3V0L3VpL21haW5fd2luZG93LnB5CkBAIC00NSw2ICs0NSw3IEBA
+          IGZyb20gLi5zY2FubmluZy5mdWxsX3RleHQgaW1wb3J0IHNlYXJjaF9kb2N1bWVudHMKIGZyb20g
+          Li51dGlscyBpbXBvcnQgbm9ybWFsaXplX2NkeF9kYXRlCiBmcm9tIC4ucHJvamVjdHMuYmFja3Vw
+          cyBpbXBvcnQgbGlzdF9wcm9qZWN0X2JhY2t1cHMsIHJlc3RvcmVfcHJvamVjdF9iYWNrdXAKIGZy
+          b20gLmRhc2hib2FyZCBpbXBvcnQgcmVhZF9kYXNoYm9hcmRfY291bnRzCitmcm9tIC5ldmVudF9x
+          dWV1ZSBpbXBvcnQgQ29hbGVzY2luZ0V2ZW50UXVldWUKIGZyb20gLnRoZW1lIGltcG9ydCBSRVZJ
+          RVdfQ09MT1JTLCBhcHBseV90ZXh0X3RoZW1lLCBhcHBseV90aGVtZQogZnJvbSAud2lkZ2V0cyBp
+          bXBvcnQgVG9vbFRpcAogCkBAIC0xNzMxLDYgKzE3MzIsOCBAQCBjbGFzcyBBcmNoaXZlU2NvdXRB
+          cHAodGsuVGspOgogCiBkZWYgbWFpbigpIC0+IE5vbmU6CiAgICAgYXBwID0gQXJjaGl2ZVNjb3V0
+          QXBwKCkKKyAgICBpZiBvcy5lbnZpcm9uLmdldCgiQVJDSElWRV9TQ09VVF9TVEFSVFVQX1BST0JF
+          IikgPT0gIjEiOgorICAgICAgICBhcHAuYWZ0ZXIoMjUwLCBhcHAuZGVzdHJveSkKICAgICBhcHAu
+          bWFpbmxvb3AoKQogCiAKZGlmZiAtLWdpdCBhL3J1bl9hcHAucHkgYi9ydW5fYXBwLnB5CmluZGV4
+          IGUyZjMzNzAuLjA0MzQ5ZGQgMTAwNjQ0Ci0tLSBhL3J1bl9hcHAucHkKKysrIGIvcnVuX2FwcC5w
+          eQpAQCAtMSwzICsxLDU5IEBACi1mcm9tIGFyY2hpdmVfc2NvdXQuYXBwIGltcG9ydCBtYWluCitm
+          cm9tIF9fZnV0dXJlX18gaW1wb3J0IGFubm90YXRpb25zCiAKLW1haW4oKQoraW1wb3J0IHN1YnBy
+          b2Nlc3MKK2ltcG9ydCBzeXMKK2ltcG9ydCB0cmFjZWJhY2sKK2Zyb20gZGF0ZXRpbWUgaW1wb3J0
+          IGRhdGV0aW1lLCB0aW1lem9uZQorZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCisKKworZGVmIF9z
+          dGFydHVwX2xvZ19wYXRoKCkgLT4gUGF0aDoKKyAgICBpZiBzeXMucGxhdGZvcm0gPT0gImRhcndp
+          biI6CisgICAgICAgIHJldHVybiBQYXRoLmhvbWUoKSAvICJMaWJyYXJ5IiAvICJMb2dzIiAvICJB
+          cmNoaXZlIFNjb3V0IiAvICJzdGFydHVwLWVycm9yLmxvZyIKKyAgICByZXR1cm4gUGF0aC5ob21l
+          KCkgLyAiLmFyY2hpdmUtc2NvdXQiIC8gInN0YXJ0dXAtZXJyb3IubG9nIgorCisKK2RlZiBfc2hv
+          d19tYWNvc19zdGFydHVwX2FsZXJ0KGxvZ19wYXRoOiBQYXRoKSAtPiBOb25lOgorICAgIGlmIHN5
+          cy5wbGF0Zm9ybSAhPSAiZGFyd2luIjoKKyAgICAgICAgcmV0dXJuCisgICAgc2NyaXB0ID0gKAor
+          ICAgICAgICAib24gcnVuIGFyZ3ZcbiIKKyAgICAgICAgImRpc3BsYXkgYWxlcnQgKGl0ZW0gMSBv
+          ZiBhcmd2KSBtZXNzYWdlIChpdGVtIDIgb2YgYXJndikgYXMgY3JpdGljYWxcbiIKKyAgICAgICAg
+          ImVuZCBydW4iCisgICAgKQorICAgIG1lc3NhZ2UgPSAoCisgICAgICAgICJBcmNoaXZlIFNjb3V0
+          IGNvdWxkIG5vdCBzdGFydC4gVGhlIGVycm9yIHdhcyBzYXZlZCB0bzpcblxuIgorICAgICAgICAr
+          IHN0cihsb2dfcGF0aCkKKyAgICAgICAgKyAiXG5cblBsZWFzZSBpbmNsdWRlIHRoYXQgZmlsZSB3
+          aGVuIHJlcG9ydGluZyB0aGUgcHJvYmxlbS4iCisgICAgKQorICAgIHRyeToKKyAgICAgICAgc3Vi
+          cHJvY2Vzcy5ydW4oCisgICAgICAgICAgICBbIi91c3IvYmluL29zYXNjcmlwdCIsICItZSIsIHNj
+          cmlwdCwgIi0tIiwgIkFyY2hpdmUgU2NvdXQgc3RhcnR1cCBlcnJvciIsIG1lc3NhZ2VdLAorICAg
+          ICAgICAgICAgY2hlY2s9RmFsc2UsCisgICAgICAgICAgICB0aW1lb3V0PTE1LAorICAgICAgICAp
+          CisgICAgZXhjZXB0IChPU0Vycm9yLCBzdWJwcm9jZXNzLlN1YnByb2Nlc3NFcnJvcik6CisgICAg
+          ICAgIHBhc3MKKworCitkZWYgX3JlY29yZF9zdGFydHVwX2Vycm9yKCkgLT4gUGF0aDoKKyAgICBw
+          YXRoID0gX3N0YXJ0dXBfbG9nX3BhdGgoKQorICAgIHBhdGgucGFyZW50Lm1rZGlyKHBhcmVudHM9
+          VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKKyAgICByZXBvcnQgPSAoCisgICAgICAgICJBcmNoaXZlIFNj
+          b3V0IHN0YXJ0dXAgZmFpbHVyZVxuIgorICAgICAgICArIGRhdGV0aW1lLm5vdyh0aW1lem9uZS51
+          dGMpLmlzb2Zvcm1hdCgpCisgICAgICAgICsgIlxuXG4iCisgICAgICAgICsgdHJhY2ViYWNrLmZv
+          cm1hdF9leGMoKQorICAgICkKKyAgICBwYXRoLndyaXRlX3RleHQocmVwb3J0LCBlbmNvZGluZz0i
+          dXRmLTgiLCBlcnJvcnM9InJlcGxhY2UiKQorICAgIHJldHVybiBwYXRoCisKKwordHJ5OgorICAg
+          IGZyb20gYXJjaGl2ZV9zY291dC5hcHAgaW1wb3J0IG1haW4KKworICAgIG1haW4oKQorZXhjZXB0
+          IEJhc2VFeGNlcHRpb246CisgICAgc3RhcnR1cF9sb2cgPSBfcmVjb3JkX3N0YXJ0dXBfZXJyb3Io
+          KQorICAgIF9zaG93X21hY29zX3N0YXJ0dXBfYWxlcnQoc3RhcnR1cF9sb2cpCisgICAgcmFpc2UK
+          ZGlmZiAtLWdpdCBhL3NjcmlwdHMvYnVpbGRfbWFjb3Muc2ggYi9zY3JpcHRzL2J1aWxkX21hY29z
+          LnNoCmluZGV4IDUxYWFiYTEuLmFmNTg3OTUgMTAwNzU1Ci0tLSBhL3NjcmlwdHMvYnVpbGRfbWFj
+          b3Muc2gKKysrIGIvc2NyaXB0cy9idWlsZF9tYWNvcy5zaApAQCAtMzIsNiArMzIsMTQgQEAgcHl0
+          aG9uIHNjcmlwdHMvdmVyaWZ5X21hY29zX2J1bmRsZS5weSAiJEFQUCIKIGNvZGVzaWduIC0tZm9y
+          Y2UgLS1kZWVwIC0tc2lnbiAtICIkQVBQIgogY29kZXNpZ24gLS12ZXJpZnkgLS1kZWVwIC0tc3Ry
+          aWN0IC0tdmVyYm9zZT0yICIkQVBQIgogCitTVEFSVFVQX0xPRz0iJEhPTUUvTGlicmFyeS9Mb2dz
+          L0FyY2hpdmUgU2NvdXQvc3RhcnR1cC1lcnJvci5sb2ciCitybSAtZiAiJFNUQVJUVVBfTE9HIgor
+          QVJDSElWRV9TQ09VVF9TVEFSVFVQX1BST0JFPTEgIiRBUFAvQ29udGVudHMvTWFjT1MvQXJjaGl2
+          ZSBTY291dCIKK2lmIFtbIC1zICIkU1RBUlRVUF9MT0ciIF1dOyB0aGVuCisgIGNhdCAiJFNUQVJU
+          VVBfTE9HIiA+JjIKKyAgZXhpdCAxCitmaQorCiBta2RpciAtcCByZWxlYXNlCiBybSAtZiAiJFpJ
+          UCIgIiRaSVAuc2hhMjU2IgogCmRpZmYgLS1naXQgYS90ZXN0cy91bml0L3Rlc3RfYmV0YTJfMV9z
+          dGFydHVwLnB5IGIvdGVzdHMvdW5pdC90ZXN0X2JldGEyXzFfc3RhcnR1cC5weQpuZXcgZmlsZSBt
+          b2RlIDEwMDY0NAppbmRleCAwMDAwMDAwLi40YmJmZGRiCi0tLSAvZGV2L251bGwKKysrIGIvdGVz
+          dHMvdW5pdC90ZXN0X2JldGEyXzFfc3RhcnR1cC5weQpAQCAtMCwwICsxLDE4IEBACitmcm9tIF9f
+          ZnV0dXJlX18gaW1wb3J0IGFubm90YXRpb25zCisKK2ltcG9ydCB1bml0dGVzdAorCitmcm9tIGFy
+          Y2hpdmVfc2NvdXQudWkgaW1wb3J0IG1haW5fd2luZG93Citmcm9tIGFyY2hpdmVfc2NvdXQudWku
+          ZXZlbnRfcXVldWUgaW1wb3J0IENvYWxlc2NpbmdFdmVudFF1ZXVlCisKKworY2xhc3MgQmV0YTIx
+          U3RhcnR1cFRlc3RzKHVuaXR0ZXN0LlRlc3RDYXNlKToKKyAgICBkZWYgdGVzdF9tYWluX3dpbmRv
+          d19pbXBvcnRzX2JvdW5kZWRfZXZlbnRfcXVldWUoc2VsZik6CisgICAgICAgIHNlbGYuYXNzZXJ0
+          SXMobWFpbl93aW5kb3cuQ29hbGVzY2luZ0V2ZW50UXVldWUsIENvYWxlc2NpbmdFdmVudFF1ZXVl
+          KQorCisgICAgZGVmIHRlc3RfcHVibGljX3ZlcnNpb25faXNfYmV0YV8yXzEoc2VsZik6CisgICAg
+          ICAgIHNlbGYuYXNzZXJ0RXF1YWwobWFpbl93aW5kb3cuVkVSU0lPTiwgIjMuMC4wLWJldGEuMi4x
+          IikKKworCitpZiBfX25hbWVfXyA9PSAiX19tYWluX18iOgorICAgIHVuaXR0ZXN0Lm1haW4oKQo=
+          PATCH
+          base64 --decode /tmp/beta21.patch.b64 > /tmp/beta21.patch
+          git apply --check /tmp/beta21.patch
+          git apply /tmp/beta21.patch
+          grep -qxF '*.egg-info/' .gitignore || printf '\n*.egg-info/\n' >> .gitignore
+
+      - name: Verify launch fix
+        run: |
+          python - <<'PY'
+          from archive_scout.constants import VERSION
+          from archive_scout.ui import main_window
+          from archive_scout.ui.event_queue import CoalescingEventQueue
+          assert VERSION == "3.0.0-beta.2.1"
+          assert main_window.CoalescingEventQueue is CoalescingEventQueue
+          print("Beta 2.1 launch regression fixed")
+          PY
+
+      - name: Run complete test suite
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Run offline benchmark smoke test
+        run: python scripts/benchmark_offline.py --cdx-rows 1000 --result-rows 100 --body-bytes 1024
+
+      - name: Remove generated files
+        shell: bash
+        run: |
+          rm -rf build dist release archive_scout.egg-info
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f -name '*.py[co]' -delete
+
+      - name: Commit only Beta 2.1 source files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            .gitignore \
+            CHANGELOG.md \
+            README.md \
+            RELEASE_NOTES.md \
+            archive_scout/constants.py \
+            archive_scout/ui/main_window.py \
+            run_app.py \
+            scripts/build_macos.sh \
+            tests/unit/test_beta2_1_startup.py
+          git diff --cached --check
+          git commit -m "Release Beta 2.1 macOS launch fix"
+          git push origin main
+
+      - name: Start cross-platform tests and builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh workflow run tests.yml --ref main
+          gh workflow run build-and-release.yml --ref main
