@@ -2,13 +2,13 @@
 
 Archive Scout is a cross-platform desktop research application for indexing public Wayback Machine captures, downloading archived pages and media, searching saved material, reconstructing forums, recovering legacy embeds, comparing snapshots, and reviewing large archive projects.
 
-Archive Scout 3.0 Beta 1.6 is the current source release. It preserves database schema version 5 and the established project format while combining the Beta 1 indexing, network-recovery, media, and large-project stability work. The repository also contains an unreleased Beta 2 hardening pass focused on measured memory use, safe exports and merges, responsive review tables, and cross-platform validation.
+Archive Scout 3.0 Beta 2.1 is the current source release. It preserves database schema version 5 and the established project format while combining the Beta 1 indexing, network-recovery, media, and large-project stability work with the Beta 2 memory, export, merge, interface, diagnostics, and cross-platform hardening pass. Beta 2.1 fixes the immediate macOS startup failure present in the initial Beta 2 package.
 
 One repository produces builds for Windows x64, Linux x64, and universal macOS for Intel and Apple Silicon.
 
-## Unreleased Beta 2 hardening
+## Beta 2 hardening
 
-The current optimization branch keeps the public version identifiers unchanged until a release number is chosen through the normal release process. It adds:
+Beta 2 adds:
 
 - bounded, body-free result-table queries with deterministic pagination;
 - incremental atomic JSON, CSV, and Markdown exports;

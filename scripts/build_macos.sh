@@ -32,6 +32,14 @@ python scripts/verify_macos_bundle.py "$APP"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
+STARTUP_LOG="$HOME/Library/Logs/Archive Scout/startup-error.log"
+rm -f "$STARTUP_LOG"
+ARCHIVE_SCOUT_STARTUP_PROBE=1 "$APP/Contents/MacOS/Archive Scout"
+if [[ -s "$STARTUP_LOG" ]]; then
+  cat "$STARTUP_LOG" >&2
+  exit 1
+fi
+
 mkdir -p release
 rm -f "$ZIP" "$ZIP.sha256"
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.0-beta.2.1
+
+- Fixed the macOS launch regression where `ArchiveScoutApp` instantiated `CoalescingEventQueue` without importing it, causing the app icon to bounce once and quit before the window appeared.
+- Added a regression test that verifies the bounded event queue is available from the main-window module.
+- Added a packaged macOS startup probe to the release build so immediate GUI startup failures fail CI instead of reaching users.
+- Added a persistent startup-error log and native macOS alert for failures that occur before the main window opens.
+- Preserved database schema version 5 and existing project compatibility.
+
 ## Unreleased — Beta 2 hardening
 
 - Removed full document bodies from paginated result-table rows and unified result filters for deterministic, lower-memory browsing.

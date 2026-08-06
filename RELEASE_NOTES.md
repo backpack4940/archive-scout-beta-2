@@ -1,3 +1,11 @@
+# Archive Scout 3.0 Beta 2.1
+
+Beta 2.1 fixes a macOS launch regression introduced by the Beta 2 bounded event queue. The main window now imports the queue implementation it instantiates during startup, preventing the application icon from bouncing once and immediately quitting.
+
+The patch also adds a packaged-app startup probe to the macOS build, a regression test that verifies the queue is available in the main-window module, and a persistent startup-error log with a native macOS alert so future pre-window failures are no longer silent. Database schema version 5 and existing project files are unchanged.
+
+---
+
 # Unreleased Beta 2 hardening
 
 This branch is an unreleased production-hardening pass over Archive Scout 3.0 Beta 1.6. It does not change schema version 5, the project format, or the existing version identifiers.

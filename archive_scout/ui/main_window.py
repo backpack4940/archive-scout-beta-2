@@ -45,6 +45,7 @@ from ..scanning.full_text import search_documents
 from ..utils import normalize_cdx_date
 from ..projects.backups import list_project_backups, restore_project_backup
 from .dashboard import read_dashboard_counts
+from .event_queue import CoalescingEventQueue
 from .theme import REVIEW_COLORS, apply_text_theme, apply_theme
 from .widgets import ToolTip
 
@@ -1731,6 +1732,8 @@ class ArchiveScoutApp(tk.Tk):
 
 def main() -> None:
     app = ArchiveScoutApp()
+    if os.environ.get("ARCHIVE_SCOUT_STARTUP_PROBE") == "1":
+        app.after(250, app.destroy)
     app.mainloop()
 
 
