@@ -5,6 +5,7 @@ import os
 import platform
 import sqlite3
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Callable
@@ -18,6 +19,34 @@ def _rows(database: sqlite3.Connection, query: str, params: tuple = ()) -> list[
     return [dict(row) for row in database.execute(query, params).fetchall()]
 
 
+def _project_summary(project_path: Path) -> dict:
+    if not project_path.exists():
+        return {"available": False}
+    try:
+        project = json.loads(project_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"available": True, "readable": False, "error_type": type(exc).__name__}
+    keyword_sets = project.get("keyword_sets") or []
+    selected_sets = sum(1 for item in keyword_sets if isinstance(item, dict) and item.get("selected", True))
+    media = project.get("media") if isinstance(project.get("media"), dict) else {}
+    network = project.get("network") if isinstance(project.get("network"), dict) else {}
+    return {
+        "available": True,
+        "readable": True,
+        "version": project.get("version"),
+        "mode": project.get("mode"),
+        "target_count": len(project.get("targets") or []),
+        "keyword_count": len(project.get("keywords") or []),
+        "keyword_set_count": len(keyword_sets),
+        "selected_keyword_set_count": selected_sets,
+        "media_enabled": bool(media.get("enabled")),
+        "network_backend": network.get("backend"),
+        "network_endpoint_mode": network.get("endpoint_mode"),
+        "network_index_strategy": network.get("index_strategy"),
+        "auto_backup": bool(project.get("auto_backup")),
+    }
+
+
 def export_diagnostics(
     root: Path,
     database: sqlite3.Connection,
@@ -29,12 +58,12 @@ def export_diagnostics(
     system = {
         "generated_at": utc_now(),
         "archive_scout_version": VERSION,
-        "python": sys.version,
-        "platform": platform.platform(),
+        "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "operating_system": platform.system(),
+        "operating_system_release": platform.release(),
         "machine": platform.machine(),
-        "processor": platform.processor(),
         "cpu_count": os.cpu_count(),
-        "executable": sys.executable,
         "frozen": bool(getattr(sys, "frozen", False)),
     }
     counts = {}
@@ -46,31 +75,49 @@ def export_diagnostics(
             counts[table] = int(database.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
         except Exception:
             counts[table] = None
-    project = {}
-    project_path = root / "project.json"
-    if project_path.exists():
-        try:
-            project = json.loads(project_path.read_text(encoding="utf-8"))
-            project.pop("retry_capture_ids", None)
-            project.pop("retry_media_capture_ids", None)
-        except Exception as exc:
-            project = {"error": str(exc)}
     payloads = {
         "system.json": system,
         "counts.json": counts,
-        "project-sanitized.json": project,
-        "recent-errors.json": _rows(database, "SELECT * FROM errors ORDER BY id DESC LIMIT 500"),
-        "recent-network-events.json": _rows(database, "SELECT * FROM network_events ORDER BY id DESC LIMIT 1000"),
-        "recent-operations.json": _rows(database, "SELECT * FROM operation_runs ORDER BY id DESC LIMIT 100"),
+        "project-summary.json": _project_summary(root / "project.json"),
+        "error-summary.json": _rows(
+            database,
+            """
+            SELECT operation,category,retryable,resolved,ignored,COUNT(*) AS count,MAX(last_seen) AS latest
+            FROM errors
+            GROUP BY operation,category,retryable,resolved,ignored
+            ORDER BY operation,category,retryable,resolved,ignored
+            """,
+        ),
+        "network-summary.json": _rows(
+            database,
+            """
+            SELECT stage,backend,status,COUNT(*) AS count,MAX(created_at) AS latest
+            FROM network_events
+            GROUP BY stage,backend,status
+            ORDER BY stage,backend,status
+            """,
+        ),
+        "operation-summary.json": _rows(
+            database,
+            """
+            SELECT mode,status,app_version,COUNT(*) AS count,MAX(updated_at) AS latest
+            FROM operation_runs
+            GROUP BY mode,status,app_version
+            ORDER BY mode,status,app_version
+            """,
+        ),
+        "report-presence.json": {
+            name: (root / "reports" / name).exists()
+            for name in ("integrity.txt", "repair.txt")
+        },
         "sqlite-integrity.json": {"result": database.execute("PRAGMA integrity_check").fetchone()[0]},
     }
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for name, payload in payloads.items():
-            archive.writestr(name, json.dumps(payload, indent=2, ensure_ascii=False, default=str) + "\n")
-        for name in ("integrity.txt", "repair.txt"):
-            path = root / "reports" / name
-            if path.exists():
-                archive.write(path, f"reports/{name}")
+    with tempfile.TemporaryDirectory(prefix="archive-scout-diagnostics-", dir=str(output.parent)) as temp:
+        temporary_output = Path(temp) / output.name
+        with zipfile.ZipFile(temporary_output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, payload in payloads.items():
+                archive.writestr(name, json.dumps(payload, indent=2, ensure_ascii=False, default=str) + "\n")
+        os.replace(temporary_output, output)
     if callback:
         callback(ProgressEvent("diagnostics", f"Diagnostics written to {output}"))
     return output
