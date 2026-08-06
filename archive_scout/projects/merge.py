@@ -11,7 +11,7 @@ from typing import Callable
 from ..database.connection import DATABASE_NAME
 from ..database.repositories import get_or_create_media_target, get_or_create_target
 from ..events import ProgressEvent, Stopped
-from ..utils import atomic_write_text, utc_now
+from ..utils import utc_now
 
 
 def _fingerprint(path: Path) -> str:
@@ -20,26 +20,17 @@ def _fingerprint(path: Path) -> str:
     return hashlib.sha256(raw).hexdigest()[:24]
 
 
-def _source_file(source_root: Path, value: str) -> Path | None:
-    source_root = source_root.resolve()
+def _source_file(source_root: Path, value: str) -> Path:
     path = Path(value)
-    candidate = path if path.is_absolute() else source_root / path
-    try:
-        resolved = candidate.resolve()
-    except (OSError, RuntimeError):
-        return None
-    if resolved != source_root and source_root not in resolved.parents:
-        return None
-    return resolved
+    return path if path.is_absolute() else source_root / path
 
 
-def _copy_file(source: Path | None, destination_root: Path, category: str, fingerprint: str) -> Path | None:
-    if source is None or not source.exists() or not source.is_file():
-        return None
+def _copy_file(source: Path, destination_root: Path, category: str, fingerprint: str) -> Path:
+    suffix = source.suffix
     digest = hashlib.sha256(str(source).encode("utf-8", "replace")).hexdigest()[:16]
     destination = destination_root / category / "merged" / fingerprint / f"{digest}_{source.name}"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if not destination.exists():
+    if source.exists() and source.is_file() and not destination.exists():
         shutil.copy2(source, destination)
     return destination
 
@@ -146,11 +137,6 @@ def merge_projects(
                     continue
                 source_path = _source_file(source_root, str(row["path"]))
                 destination_path = _copy_file(source_path, destination_root, "captures", fingerprint)
-                if destination_path is None:
-                    destination_path = (
-                        destination_root / "captures" / "merged" / fingerprint / f"recovered_{int(row['id'])}.txt"
-                    )
-                    atomic_write_text(destination_path, str(row["body_text"] or ""))
                 existing_doc = database.execute("SELECT id FROM documents WHERE capture_id=?", (capture_map[old_capture],)).fetchone()
                 if existing_doc:
                     document_id = int(existing_doc["id"])
@@ -179,8 +165,7 @@ def merge_projects(
                     target_id = media_target_map.get(int(row["target_id"])) if row["target_id"] is not None else None
                     source_document_id = document_map.get(int(row["source_document_id"])) if row["source_document_id"] is not None else None
                     source_path = _source_file(source_root, str(row["path"])) if row["path"] else None
-                    destination_path = _copy_file(source_path, destination_root, "media", fingerprint)
-                    media_file_missing = bool(row["path"]) and destination_path is None
+                    destination_path = _copy_file(source_path, destination_root, "media", fingerprint) if source_path else None
                     database.execute(
                         """
                         INSERT OR IGNORE INTO media_captures(
@@ -192,10 +177,8 @@ def merge_projects(
                         (
                             row["original_url"], row["timestamp"], target_id, source_document_id, row["source_type"],
                             row["query_signature"], row["media_kind"], row["extension"], row["mimetype"], row["statuscode"],
-                            row["digest"], row["length"], "pending" if media_file_missing else row["state"],
-                            0 if media_file_missing else row["download_attempts"], str(destination_path) if destination_path else None,
-                            row["http_status"], row["final_url"], 0 if media_file_missing else row["bytes_saved"],
-                            row["content_hash"], row["created_at"], row["updated_at"],
+                            row["digest"], row["length"], row["state"], row["download_attempts"], str(destination_path) if destination_path else None,
+                            row["http_status"], row["final_url"], row["bytes_saved"], row["content_hash"], row["created_at"], row["updated_at"],
                         ),
                     )
                     merged = database.execute(

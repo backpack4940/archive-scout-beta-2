@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..constants import REVIEW_STATUSES
 from ..scanning.keywords import keyword_rules_to_lines, parse_keyword_rules, serialize_keyword_rules
-from ..utils import utc_now
+from ..utils import normalize_search, utc_now
 
 
 def get_or_create_target(database: sqlite3.Connection, pattern: str, settings: dict | None = None) -> int:
@@ -398,32 +398,8 @@ def ignore_errors(database: sqlite3.Connection, error_ids: list[int], ignored: b
         )
 
 
-def list_error_categories(database: sqlite3.Connection, unresolved_only: bool = True) -> list[str]:
-    where = "WHERE resolved=0 AND ignored=0" if unresolved_only else ""
-    return [
-        str(row[0])
-        for row in database.execute(
-            f"SELECT DISTINCT category FROM errors {where} ORDER BY category COLLATE NOCASE"
-        )
-    ]
-
-
-def list_errors(
-    database: sqlite3.Connection,
-    unresolved_only: bool = True,
-    category: str = "",
-    limit: int = 2000,
-    offset: int = 0,
-) -> list[sqlite3.Row]:
-    clauses: list[str] = []
-    params: list[object] = []
-    if unresolved_only:
-        clauses.extend(["e.resolved=0", "e.ignored=0"])
-    if category:
-        clauses.append("e.category=?")
-        params.append(category)
-    where = "WHERE " + " AND ".join(clauses) if clauses else ""
-    params.extend([max(1, int(limit)), max(0, int(offset))])
+def list_errors(database: sqlite3.Connection, unresolved_only: bool = True) -> list[sqlite3.Row]:
+    where = "WHERE e.resolved=0 AND e.ignored=0" if unresolved_only else ""
     return database.execute(
         f"""
         SELECT e.*,c.original_url,c.timestamp,d.path,mc.original_url AS media_url,mc.path AS media_path
@@ -433,9 +409,7 @@ def list_errors(
         LEFT JOIN media_captures mc ON mc.id=e.media_capture_id
         {where}
         ORDER BY e.last_seen DESC,e.id DESC
-        LIMIT ? OFFSET ?
-        """,
-        params,
+        """
     ).fetchall()
 
 
@@ -468,58 +442,13 @@ def save_note(database: sqlite3.Connection, match_id: int, text: str, author: st
 
 def set_match_tags(database: sqlite3.Connection, match_id: int, tags: list[str]) -> None:
     database.execute("DELETE FROM match_tags WHERE match_id=?", (match_id,))
-    names = list(dict.fromkeys(raw.strip() for raw in tags if raw.strip()))
-    if not names:
-        return
-    database.executemany("INSERT OR IGNORE INTO tags(name) VALUES(?)", ((name,) for name in names))
-    tag_ids: dict[str, int] = {}
-    for offset in range(0, len(names), 500):
-        chunk = names[offset:offset + 500]
-        placeholders = ",".join("?" for _ in chunk)
-        for row in database.execute(
-            f"SELECT id,name FROM tags WHERE name IN ({placeholders})",
-            chunk,
-        ):
-            tag_ids[str(row["name"])] = int(row["id"])
-    database.executemany(
-        "INSERT OR IGNORE INTO match_tags(match_id,tag_id) VALUES(?,?)",
-        ((match_id, tag_ids[name]) for name in names),
-    )
-
-
-def _result_filters(
-    scan_run_id: int,
-    minimum_score: int,
-    review_status: str,
-    search: str,
-) -> tuple[list[str], list[object]]:
-    clauses = ["m.scan_run_id=?", "m.score>=?"]
-    params: list[object] = [scan_run_id, minimum_score]
-    if review_status:
-        clauses.append("COALESCE(r.status,'unreviewed')=?")
-        params.append(review_status)
-    if search.strip():
-        clauses.append("(LOWER(c.original_url) LIKE ? OR LOWER(d.title) LIKE ? OR LOWER(d.body_text) LIKE ?)")
-        value = "%" + search.casefold() + "%"
-        params.extend([value, value, value])
-    return clauses, params
-
-
-def _result_select(clauses: list[str]) -> str:
-    return (
-        """
-        SELECT m.*,d.path,d.title,d.size_bytes,c.original_url,c.timestamp,c.mimetype,
-               COALESCE(r.status,'unreviewed') AS review_status,r.reviewer,r.reviewed_at,
-               COALESCE((SELECT text FROM notes n WHERE n.match_id=m.id ORDER BY n.id LIMIT 1),'') AS note,
-               COALESCE((SELECT GROUP_CONCAT(t.name, ', ') FROM match_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.match_id=m.id),'') AS tags
-        FROM document_matches m
-        JOIN documents d ON d.id=m.document_id
-        JOIN captures c ON c.id=d.capture_id
-        LEFT JOIN reviews r ON r.match_id=m.id
-        WHERE """
-        + " AND ".join(clauses)
-        + " ORDER BY m.score DESC,c.timestamp,c.original_url,m.id"
-    )
+    for raw in tags:
+        name = raw.strip()
+        if not name:
+            continue
+        database.execute("INSERT OR IGNORE INTO tags(name) VALUES(?)", (name,))
+        tag_id = database.execute("SELECT id FROM tags WHERE name=?", (name,)).fetchone()["id"]
+        database.execute("INSERT OR IGNORE INTO match_tags(match_id,tag_id) VALUES(?,?)", (match_id, tag_id))
 
 
 def result_rows(
@@ -531,33 +460,29 @@ def result_rows(
     limit: int = 500,
     offset: int = 0,
 ) -> list[sqlite3.Row]:
-    clauses, params = _result_filters(scan_run_id, minimum_score, review_status, search)
-    params.extend([max(0, int(limit)), max(0, int(offset))])
+    clauses = ["m.scan_run_id=?", "m.score>=?"]
+    params: list[object] = [scan_run_id, minimum_score]
+    if review_status:
+        clauses.append("COALESCE(r.status,'unreviewed')=?")
+        params.append(review_status)
+    if search.strip():
+        clauses.append("(LOWER(c.original_url) LIKE ? OR LOWER(d.title) LIKE ? OR LOWER(d.body_text) LIKE ?)")
+        value = "%" + search.casefold() + "%"
+        params.extend([value, value, value])
+    params.extend([limit, max(0, int(offset))])
     return database.execute(
-        _result_select(clauses) + " LIMIT ? OFFSET ?",
+        """
+        SELECT m.*,d.path,d.title,d.body_text,d.size_bytes,c.original_url,c.timestamp,c.mimetype,
+               COALESCE(r.status,'unreviewed') AS review_status,r.reviewer,r.reviewed_at,
+               COALESCE((SELECT text FROM notes n WHERE n.match_id=m.id ORDER BY n.id LIMIT 1),'') AS note,
+               COALESCE((SELECT GROUP_CONCAT(t.name, ', ') FROM match_tags mt JOIN tags t ON t.id=mt.tag_id WHERE mt.match_id=m.id),'') AS tags
+        FROM document_matches m
+        JOIN documents d ON d.id=m.document_id
+        JOIN captures c ON c.id=d.capture_id
+        LEFT JOIN reviews r ON r.match_id=m.id
+        WHERE """ + " AND ".join(clauses) + " ORDER BY m.score DESC,c.timestamp,c.original_url LIMIT ? OFFSET ?",
         params,
     ).fetchall()
-
-
-def iter_result_rows(
-    database: sqlite3.Connection,
-    scan_run_id: int,
-    minimum_score: int = 0,
-    review_status: str = "",
-    search: str = "",
-    batch_size: int = 1000,
-):
-    """Stream ordered result rows from one cursor with bounded resident memory."""
-    clauses, params = _result_filters(scan_run_id, minimum_score, review_status, search)
-    cursor = database.execute(_result_select(clauses), params)
-    try:
-        while True:
-            rows = cursor.fetchmany(max(1, int(batch_size)))
-            if not rows:
-                return
-            yield from rows
-    finally:
-        cursor.close()
 
 
 def result_count(
@@ -567,7 +492,15 @@ def result_count(
     review_status: str = "",
     search: str = "",
 ) -> int:
-    clauses, params = _result_filters(scan_run_id, minimum_score, review_status, search)
+    clauses = ["m.scan_run_id=?", "m.score>=?"]
+    params: list[object] = [scan_run_id, minimum_score]
+    if review_status:
+        clauses.append("COALESCE(r.status,'unreviewed')=?")
+        params.append(review_status)
+    if search.strip():
+        clauses.append("(LOWER(c.original_url) LIKE ? OR LOWER(d.title) LIKE ? OR LOWER(d.body_text) LIKE ?)")
+        value = "%" + search.casefold() + "%"
+        params.extend([value, value, value])
     return int(database.execute(
         """
         SELECT COUNT(*)
@@ -578,6 +511,7 @@ def result_count(
         WHERE """ + " AND ".join(clauses),
         params,
     ).fetchone()[0])
+
 
 def get_or_create_media_target(database: sqlite3.Connection, pattern: str) -> int:
     row = database.execute("SELECT id FROM media_targets WHERE pattern=?", (pattern,)).fetchone()

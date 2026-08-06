@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sqlite3
 from pathlib import Path
 
@@ -55,25 +54,14 @@ def open_database(root: Path, migrate: bool = True) -> sqlite3.Connection:
         database.execute("PRAGMA wal_autocheckpoint=10000")
         database.execute("PRAGMA busy_timeout=60000")
         initialize_schema(database)
-        # Recover states left behind by a terminated process. A second connection
-        # opened by the active UI must not mark the current worker as crashed.
-        current_pid = os.getpid()
-        active_current_process = database.execute(
-            "SELECT 1 FROM operation_runs WHERE status='running' AND process_id=? LIMIT 1",
-            (current_pid,),
-        ).fetchone()
-        if not active_current_process:
-            database.execute("UPDATE captures SET state='pending' WHERE state='downloading'")
-            database.execute("UPDATE media_captures SET state='pending' WHERE state='downloading'")
-            database.execute("UPDATE scan_runs SET status='interrupted' WHERE status='running'")
+        # Recover states left behind by a terminated process. Downloads are safe
+        # to retry because files are written through temporary paths and replaced
+        # atomically.
+        database.execute("UPDATE captures SET state='pending' WHERE state='downloading'")
+        database.execute("UPDATE media_captures SET state='pending' WHERE state='downloading'")
+        database.execute("UPDATE scan_runs SET status='interrupted' WHERE status='running'")
         database.execute(
-            """
-            UPDATE operation_runs
-            SET status='interrupted',completed_at=datetime('now'),updated_at=datetime('now'),
-                message=COALESCE(message,'Recovered after an unclean shutdown')
-            WHERE status='running' AND (process_id IS NULL OR process_id<>?)
-            """,
-            (current_pid,),
+            "UPDATE operation_runs SET status='interrupted',completed_at=datetime('now'),updated_at=datetime('now'),message=COALESCE(message,'Recovered after an unclean shutdown') WHERE status='running'"
         )
         database.commit()
         return database
