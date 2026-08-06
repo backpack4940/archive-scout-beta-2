@@ -1,0 +1,29 @@
+Archive Scout 3.0 Beta 1.4 Windows signing setup
+
+The Windows application remains a PyInstaller onedir build with UPX disabled. Beta 1.4 adds the application icon, stable version metadata, mandatory signature verification for signed/tagged packaging, and Windows false-positive guidance.
+
+Repository variable:
+ENABLE_WINDOWS_ARTIFACT_SIGNING=true
+
+Repository variables:
+WINDOWS_SIGNING_ENDPOINT=https://<region>.codesigning.azure.net/
+WINDOWS_SIGNING_ACCOUNT_NAME=<account name>
+WINDOWS_SIGNING_PROFILE_NAME=<certificate profile>
+
+Repository secrets:
+AZURE_CLIENT_ID
+AZURE_TENANT_ID
+AZURE_SUBSCRIPTION_ID
+
+The Azure identity must have permission to sign with the selected Artifact Signing certificate profile and must have a federated GitHub Actions credential.
+
+Workflow behavior:
+1. Tagged releases fail unless ENABLE_WINDOWS_ARTIFACT_SIGNING is true.
+2. The Windows onedir application is built without creating a release ZIP.
+3. azure/login authenticates with GitHub OIDC.
+4. azure/artifact-signing-action signs dist/ArchiveScout/ArchiveScout.exe.
+5. scripts/build_windows.ps1 is called with -SkipBuild -RequireSigned.
+6. Packaging fails unless Get-AuthenticodeSignature reports Status=Valid.
+7. The signed folder is zipped and its SHA-256 checksum is generated.
+
+Manual workflow builds may remain unsigned when signing is disabled. They are testing artifacts, not public Windows releases.
