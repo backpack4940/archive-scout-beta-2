@@ -1,2 +1,2 @@
-0000000000000000000000000000000000000000 d048dbcee50f1b2f653300097c10c55767ab18d3 backpack <backpack@backpacks-MacBook-Air.local> 1786051801 -0400	commit (initial): Initial commit
-d048dbcee50f1b2f653300097c10c55767ab18d3 d048dbcee50f1b2f653300097c10c55767ab18d3 backpack <backpack@backpacks-MacBook-Air.local> 1786051801 -0400	Branch: renamed refs/heads/main to refs/heads/main
+0000000000000000000000000000000000000000 b704d8b15df2073cf37b6face464130b2e3f399b backpack <backpack@backpacks-MacBook-Air.local> 1786053630 -0400	clone: from https://github.com/backpack4940/archive-scout-beta-2.git
+b704d8b15df2073cf37b6face464130b2e3f399b 42e101589592c901221942c5fdfd4739ac89064f backpack <backpack@backpacks-MacBook-Air.local> 1786053631 -0400	commit: Add GitHub configuration
