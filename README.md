@@ -25,9 +25,9 @@ See [offline benchmark methodology and measurements](docs/BENCHMARKS.md).
 
 ## Downloads
 
-- [Download for Windows x64](../../releases/latest/download/ArchiveScout-Windows-x64.zip)
-- [Download for Linux x64](../../releases/latest/download/ArchiveScout-Linux-x64.tar.gz)
-- [Download for macOS Intel and Apple Silicon](../../releases/latest/download/ArchiveScout-macOS-Universal.zip)
+- [Download for Windows x64](https://github.com/backpack4940/archive-scout-beta-2/releases/download/v1.0.0-beta.2/ArchiveScout-Windows-x64.zip)
+- [Download for Linux x64](https://github.com/backpack4940/archive-scout-beta-2/releases/download/v1.0.0-beta.2/ArchiveScout-Linux-x64.zip)
+- [Download for macOS Intel and Apple Silicon](https://github.com/backpack4940/archive-scout-beta-2/releases/download/v1.0.0-beta.2/ArchiveScout-macOS-Universal.zip)
 
 ### macOS installation
 
