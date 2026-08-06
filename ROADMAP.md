@@ -1,6 +1,6 @@
 # Archive Scout 3.0 Roadmap
 
-Archive Scout 3.0 began with one combined milestone: the planned final Alpha 4 reliability pass and the planned Beta 1 visual redesign were delivered together as `3.0.0-beta.1` in the new Archive Scout 3.0 repository. Beta 1.1 fixed malformed CDX responses and combined media indexing; Beta 1.2 improved broad indexing; Beta 1.5 tuned connection behavior; and Beta 1.6 hardened large-project stability. An unreleased Beta 2 hardening branch is now applying measured review/export improvements, filesystem safeguards, bounded UI delivery, and expanded platform CI without changing schema version 5.
+Archive Scout 3.0 began with one combined milestone: the planned final Alpha 4 reliability pass and the planned Beta 1 visual redesign were delivered together as `3.0.0-beta.1` in the new Archive Scout 3.0 repository. Beta 1.1 fixed malformed CDX responses and combined media indexing. Beta 1.2 is the broad-indexing performance pass based on a full review of the supplied downloader engine.
 
 ## Completed foundation
 
@@ -87,16 +87,7 @@ Completed:
 
 ## Beta 2 — Public testing and optimization
 
-In progress:
-
-- measured result-browser and streaming-export optimization
-- atomic report generation and isolated review-package staging
-- merge path confinement and process-aware recovery
-- bounded progress and error-table delivery
-- deterministic offline 100,000-row and 1,000,000-row benchmark profiles
-- Windows, Linux, Intel macOS, and Apple Silicon pull-request CI
-
-Remaining focus:
+Planned focus:
 
 - results from long-running Windows, Linux, Intel Mac, and Apple Silicon testing
 - network diagnostics gathered from real proxy, DNS, TLS, and firewall environments
