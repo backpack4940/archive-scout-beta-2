@@ -2,9 +2,26 @@
 
 Archive Scout is a cross-platform desktop research application for indexing public Wayback Machine captures, downloading archived pages and media, searching saved material, reconstructing forums, recovering legacy embeds, comparing snapshots, and reviewing large archive projects.
 
-Archive Scout 3.0 Beta 1.2 is the indexing-performance release. It preserves the complete Alpha 4/Beta 1 feature set, the Beta 1.1 CDX/media fixes, and database schema version 5 while replacing the slow serial broad-index path with bounded parallel CDX page retrieval.
+Archive Scout 3.0 Beta 1.6 is the current source release. It preserves database schema version 5 and the established project format while combining the Beta 1 indexing, network-recovery, media, and large-project stability work. The repository also contains an unreleased Beta 2 hardening pass focused on measured memory use, safe exports and merges, responsive review tables, and cross-platform validation.
 
 One repository produces builds for Windows x64, Linux x64, and universal macOS for Intel and Apple Silicon.
+
+## Unreleased Beta 2 hardening
+
+The current optimization branch keeps the public version identifiers unchanged until a release number is chosen through the normal release process. It adds:
+
+- bounded, body-free result-table queries with deterministic pagination;
+- incremental atomic JSON, CSV, and Markdown exports;
+- isolated review-package creation that cannot overwrite or delete neighboring exports;
+- a bounded, progress-coalescing worker-to-Tk event queue;
+- project-merge path confinement for documents and media;
+- process-aware crash recovery that does not interrupt work owned by the current process;
+- bounded, server-filtered error-table queries;
+- path-free aggregate diagnostics written through atomic ZIP replacement;
+- deterministic offline CDX/database/export benchmarks with no live Internet Archive requests; and
+- pull-request CI covering Python 3.11 and 3.12 on Windows, Linux, Intel macOS, and Apple Silicon macOS.
+
+See [offline benchmark methodology and measurements](docs/BENCHMARKS.md).
 
 ## Downloads
 

@@ -22,6 +22,10 @@ ArchiveScout-macOS-Universal.zip
 
 Each package has a corresponding `.sha256` file.
 
+## Unreleased hardening branch
+
+The Beta 2 production-hardening work remains unreleased and intentionally keeps `3.0.0-beta.1.6`, Python package version `3.0.0b1.post8`, schema version 5, and the existing project format unchanged. The branch adds measured result/export improvements, bounded UI delivery, safer project merging, process-aware recovery, privacy-preserving diagnostics, offline benchmarks, and expanded pull-request CI.
+
 ## Beta 1.6 scope
 
 Beta 1.6 is a whole-repository reliability and large-project optimization pass. The existing request-rate limit, project schema, visible workflows, media behavior, live Dashboard, icon, date handling, external-media operation, and signing workflow remain in place.

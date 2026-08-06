@@ -1,3 +1,13 @@
+# Unreleased Beta 2 hardening
+
+This branch is an unreleased production-hardening pass over Archive Scout 3.0 Beta 1.6. It does not change schema version 5, the project format, or the existing version identifiers.
+
+The pass reduces result-browser and export memory, makes report output atomic, confines project merges to the chosen source directory, bounds UI and error-table delivery, and corrects same-process crash-recovery ownership, and removes user paths and raw project content from diagnostic ZIPs. It also adds deterministic offline benchmarks and regression tests. Exact comparative measurements and commands are documented in `docs/BENCHMARKS.md`.
+
+Native Windows, Intel macOS, and Apple Silicon package execution remains a CI and physical-machine validation requirement.
+
+---
+
 # Archive Scout 3.0 Beta 1.6
 
 Beta 1.6 is a whole-repository reliability and large-project optimization pass. It keeps the Beta 1.5 request-rate envelope and existing user-facing workflows while addressing the two zero-tolerance failures reported in real use: crashes around 50,000 snapshots and indexing sessions that never move beyond repeated Wayback contact attempts.

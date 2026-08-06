@@ -23,6 +23,7 @@ from ..database.connection import open_database
 from ..database.repositories import (
     delete_scan_run,
     ignore_errors,
+    list_error_categories,
     list_errors,
     list_scan_runs,
     rename_scan_run,
@@ -112,7 +113,7 @@ class ArchiveScoutApp(tk.Tk):
         self.geometry("1180x820")
         self.minsize(940, 680)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.events: queue.Queue[tuple[str, object]] = queue.Queue()
+        self.events: CoalescingEventQueue[ProgressEvent] = CoalescingEventQueue(max_events=256)
         self.stop_event = threading.Event()
         self.worker_thread: threading.Thread | None = None
         self.last_paths: dict[str, Path] = {}
@@ -1172,7 +1173,7 @@ class ArchiveScoutApp(tk.Tk):
             self.events.put(("error", traceback.format_exc()))
 
     def on_engine_event(self, event: ProgressEvent) -> None:
-        self.events.put(("progress", event))
+        self.events.put_progress(event)
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -1537,15 +1538,19 @@ class ArchiveScoutApp(tk.Tk):
             return
         database = self.project_database()
         try:
-            rows = list_errors(database)
-            categories = sorted({row["category"] for row in rows})
+            categories = list_error_categories(database)
             self.error_category_box.configure(values=("All", *categories))
             selected_category = self.error_category_var.get()
+            rows = list_errors(
+                database,
+                category="" if selected_category == "All" else selected_category,
+                limit=2000,
+            )
+            if len(rows) == 2000:
+                self.log("The Activity error table is showing the newest 2,000 matching errors.")
             self.errors_tree.delete(*self.errors_tree.get_children())
             self.error_row_map.clear()
             for row in rows:
-                if selected_category != "All" and row["category"] != selected_category:
-                    continue
                 url = row["original_url"] or row["media_url"] or row["path"] or row["media_path"] or ""
                 item = self.errors_tree.insert("", "end", values=(row["operation"], row["category"], row["attempt_count"], bool(row["retryable"]), row["last_seen"], url, row["message"]))
                 self.error_row_map[item] = dict(row)

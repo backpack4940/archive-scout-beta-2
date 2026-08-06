@@ -9,6 +9,7 @@ import re
 import tempfile
 import unicodedata
 import urllib.parse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -118,33 +119,33 @@ def hash_text(value: str, algorithm: str = "sha256") -> str:
     return hashlib.new(algorithm, value.encode("utf-8", "replace")).hexdigest()
 
 
-def atomic_write_text(path: Path, text: str) -> None:
+@contextmanager
+def atomic_text_writer(path: Path):
+    """Yield a text handle that replaces *path* only after a successful write."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as handle:
-            handle.write(text)
+            yield handle
         os.replace(temp_name, path)
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    with atomic_text_writer(path) as handle:
+        handle.write(text)
 
 
 def atomic_write_lines(path: Path, lines: Iterable[str]) -> None:
     """Atomically stream text lines without building one project-sized string."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="\n") as handle:
-            for line in lines:
-                text = str(line)
-                handle.write(text)
-                if text and not text.endswith("\n"):
-                    handle.write("\n")
-        os.replace(temp_name, path)
-    finally:
-        if os.path.exists(temp_name):
-            os.unlink(temp_name)
+    with atomic_text_writer(path) as handle:
+        for line in lines:
+            text = str(line)
+            handle.write(text)
+            if text and not text.endswith("\n"):
+                handle.write("\n")
 
 
 def json_value(value: str | None, default):

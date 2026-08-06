@@ -35,7 +35,7 @@ Archive Scout separates capture discovery, downloaded material, searches, analys
 - `project_backups` records managed SQLite backups.
 - `repair_actions` records project-repair changes.
 
-Opening a project resets records left in transient `downloading` or `running` states after an application or operating-system interruption.
+Opening a project resets records left in transient `downloading` or `running` states after an application or operating-system interruption. Recovery records include process ownership so additional connections opened by the current application do not interrupt live work.
 
 ## Packages
 
@@ -85,3 +85,13 @@ Direct media indexing builds one case-insensitive extension regular expression f
 ## Database and filesystem safety
 
 SQLite uses WAL mode and batched writes. Managed backups use SQLite's backup API rather than copying an open database file. Repair operations make a safety backup, reset stuck states, identify missing files, rebuild FTS, remove abandoned partial files, checkpoint WAL, and optimize the database.
+
+## Bounded review and UI delivery
+
+Result-table queries select display metadata, snippets, notes, and tags without loading complete saved document bodies. The same filter builder drives row counts, pages, and streaming exports so pagination stays deterministic. JSON, CSV, and Markdown exports write incrementally to an atomic temporary file; review ZIPs stage their members in an isolated temporary directory.
+
+Worker events cross into Tk through a bounded queue. Repeated progress updates are coalesced to the newest state, while state changes, errors, logs, and completion events remain ordered. Error-history browsing is filtered and capped in SQLite rather than loading the complete table before filtering in Python.
+
+## Project merge trust boundary
+
+A merge treats the selected source project directory as its filesystem trust boundary. Document and media paths are resolved, including symlinks, and are copied only when they remain inside that directory. Database text may be reconstructed into a safe destination document when an original path is missing or outside the boundary; untrusted media paths are not read.

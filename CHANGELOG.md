@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased — Beta 2 hardening
+
+- Removed full document bodies from paginated result-table rows and unified result filters for deterministic, lower-memory browsing.
+- Streamed JSON, CSV, and Markdown exports through atomic temporary files instead of materializing complete projects in memory.
+- Isolated review-package staging so ZIP creation cannot overwrite or delete adjacent user exports.
+- Added a bounded worker-to-UI event queue that coalesces progress bursts while retaining non-progress events.
+- Confined project-merge file reads to the selected source project directory, including symlink resolution, and safely reconstructed document text when an external path could not be trusted.
+- Prevented a second connection in the same process from treating active work as crashed while retaining stale-process recovery.
+- Bounded and server-filtered error-history queries used by the interface.
+- Replaced path-bearing diagnostic payloads with aggregate, path-free summaries and made diagnostic ZIP replacement atomic.
+- Batched and deduplicated match-tag updates and added a targeted note lookup index without changing schema version 5.
+- Added deterministic offline benchmarks for 100,000-row and 1,000,000-row CDX fixtures, SQLite insertion, result browsing, and export memory.
+- Added regression coverage for export safety, bounded UI delivery, merge path confinement, recovery ownership, result pagination, and error filtering.
+- Expanded pull-request CI to Windows, Linux, Intel macOS, and Apple Silicon macOS on Python 3.11 and 3.12.
+
+Measured in the same Python 3.13.5 Linux runtime with 10,000 generated review rows, loading 500 result rows improved from 0.1431 seconds and 4,712,286 bytes peak memory to 0.0109 seconds and 593,125 bytes. JSON export improved from 3.2895 seconds and 110,874,891 bytes peak memory to 0.6091 seconds and 2,365,561 bytes. These are comparative development measurements, not universal performance guarantees.
+
 ## 3.0.0-beta.1.6
 
 - Reworked the 50,000-row CDX path to parse line-oriented responses directly into compact tuples instead of simultaneously retaining raw bytes, a decoded full string, nested JSON-style lists, and per-row dictionaries.
