@@ -1,0 +1,65 @@
+name: Apply Merge Fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/apply-merge-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Apply project merge security and macOS path fix
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("archive_scout/projects/merge.py")
+          text = path.read_text()
+
+          text = text.replace(
+              "from ..utils import utc_now",
+              "from ..utils import atomic_write_text, utc_now",
+          )
+
+          text = text.replace(
+              '''def _source_file(source_root: Path, value: str) -> Path:\n    path = Path(value)\n    return path if path.is_absolute() else source_root / path\n\n\ndef _copy_file(source: Path, destination_root: Path, category: str, fingerprint: str) -> Path:\n    suffix = source.suffix\n    digest = hashlib.sha256(str(source).encode("utf-8", "replace")).hexdigest()[:16]\n    destination = destination_root / category / "merged" / fingerprint / f"{digest}_{source.name}"\n    destination.parent.mkdir(parents=True, exist_ok=True)\n    if source.exists() and source.is_file() and not destination.exists():\n        shutil.copy2(source, destination)\n    return destination''',
+              '''def _source_file(source_root: Path, value: str) -> Path | None:\n    source_root = source_root.resolve()\n    path = Path(value)\n    candidate = path if path.is_absolute() else source_root / path\n    try:\n        resolved = candidate.resolve()\n    except (OSError, RuntimeError):\n        return None\n    if resolved != source_root and source_root not in resolved.parents:\n        return None\n    return resolved\n\n\ndef _copy_file(source: Path | None, destination_root: Path, category: str, fingerprint: str) -> Path | None:\n    if source is None or not source.exists() or not source.is_file():\n        return None\n    digest = hashlib.sha256(str(source).encode("utf-8", "replace")).hexdigest()[:16]\n    destination = destination_root / category / "merged" / fingerprint / f"{digest}_{source.name}"\n    destination.parent.mkdir(parents=True, exist_ok=True)\n    if not destination.exists():\n        shutil.copy2(source, destination)\n    return destination''',
+          )
+
+          text = text.replace(
+              '''    destination_root = destination_root.resolve()\n    source_root = source_root.resolve()\n    if destination_root == source_root:''',
+              '''    destination_root = destination_root.absolute()\n    source_root = source_root.absolute()\n    if destination_root.resolve() == source_root.resolve():''',
+          )
+
+          text = text.replace(
+              '''                destination_path = _copy_file(source_path, destination_root, "captures", fingerprint)\n                existing_doc = database.execute''',
+              '''                destination_path = _copy_file(source_path, destination_root, "captures", fingerprint)\n                if destination_path is None:\n                    destination_path = (\n                        destination_root / "captures" / "merged" / fingerprint / f"recovered_{int(row['id'])}.txt"\n                    )\n                    atomic_write_text(destination_path, str(row["body_text"] or ""))\n                existing_doc = database.execute''',
+          )
+
+          text = text.replace(
+              '''                    destination_path = _copy_file(source_path, destination_root, "media", fingerprint) if source_path else None\n                    database.execute(''',
+              '''                    destination_path = _copy_file(source_path, destination_root, "media", fingerprint)\n                    media_file_missing = bool(row["path"]) and destination_path is None\n                    database.execute(''',
+          )
+
+          text = text.replace(
+              '''                            row["digest"], row["length"], row["state"], row["download_attempts"], str(destination_path) if destination_path else None,\n                            row["http_status"], row["final_url"], row["bytes_saved"], row["content_hash"], row["created_at"], row["updated_at"],''',
+              '''                            row["digest"], row["length"], "pending" if media_file_missing else row["state"],\n                            0 if media_file_missing else row["download_attempts"], str(destination_path) if destination_path else None,\n                            row["http_status"], row["final_url"], 0 if media_file_missing else row["bytes_saved"],\n                            row["content_hash"], row["created_at"], row["updated_at"],''',
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add archive_scout/projects/merge.py
+          git diff --cached --quiet || git commit -m "Fix project merge path handling"
+          git push
