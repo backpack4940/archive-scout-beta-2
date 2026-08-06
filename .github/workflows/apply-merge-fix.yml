@@ -3,6 +3,8 @@ name: Apply Merge Fix
 
 on:
   workflow_dispatch:
+  issues:
+    types: [opened]
   push:
     paths:
       - ".github/workflows/apply-merge-fix.yml"
@@ -12,6 +14,7 @@ permissions:
 
 jobs:
   apply-fix:
+    if: github.event_name != 'issues' || github.event.issue.title == 'Apply merge fix'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
