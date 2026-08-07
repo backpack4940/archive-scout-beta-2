@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import socket
@@ -48,6 +49,19 @@ class TransportResponse:
     headers: dict[str, str]
     final_url: str
     data: bytes | bytearray
+    backend: str
+    elapsed: float
+
+
+@dataclass(slots=True)
+class TransportFileResponse:
+    status: int
+    headers: dict[str, str]
+    final_url: str
+    path: Path
+    bytes_written: int
+    content_hash: str
+    preview: bytes
     backend: str
     elapsed: float
 
@@ -152,6 +166,39 @@ def _read_limited(chunks: Iterable[bytes], max_bytes: int, stop_event: threading
     return data
 
 
+
+
+def _write_limited(
+    chunks: Iterable[bytes],
+    destination: Path,
+    max_bytes: int,
+    stop_event: threading.Event,
+    preview_bytes: int = 20_000,
+) -> tuple[int, str, bytes]:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    preview = bytearray()
+    total = 0
+    try:
+        with destination.open("wb") as handle:
+            for chunk in chunks:
+                if stop_event.is_set():
+                    raise Stopped
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > max_bytes:
+                    raise RuntimeError(f"response exceeds {max_bytes:,} bytes")
+                handle.write(chunk)
+                digest.update(chunk)
+                if len(preview) < preview_bytes:
+                    preview.extend(chunk[: preview_bytes - len(preview)])
+        return total, digest.hexdigest(), bytes(preview)
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+
+
 def _copy_headers(items: Iterable[tuple[object, object]]) -> dict[str, str]:
     headers: dict[str, str] = {}
     for raw_key, raw_value in items:
@@ -209,6 +256,36 @@ class HttpxBackend:
                 headers=_copy_headers(response.headers.items()),
                 final_url=str(response.url),
                 data=data,
+                backend=self.name,
+                elapsed=time.monotonic() - started,
+            )
+
+
+    def download(
+        self,
+        url: str,
+        headers: dict[str, str],
+        destination: Path,
+        max_bytes: int,
+        stop_event: threading.Event,
+    ) -> TransportFileResponse:
+        ensure_frozen_bundle_available()
+        started = time.monotonic()
+        with self.client.stream("GET", url, headers=headers) as response:
+            announced = response.headers.get("Content-Length")
+            if announced and announced.isdigit() and int(announced) > max_bytes:
+                raise RuntimeError(f"response exceeds {max_bytes:,} bytes")
+            total, content_hash, preview = _write_limited(
+                response.iter_bytes(1024 * 1024), destination, max_bytes, stop_event
+            )
+            return TransportFileResponse(
+                status=int(response.status_code),
+                headers=_copy_headers(response.headers.items()),
+                final_url=str(response.url),
+                path=destination,
+                bytes_written=total,
+                content_hash=content_hash,
+                preview=preview,
                 backend=self.name,
                 elapsed=time.monotonic() - started,
             )
@@ -286,6 +363,61 @@ class Urllib3Backend:
                 headers=_copy_headers(response.headers.items()),
                 final_url=current_url,
                 data=data,
+                backend=self.name,
+                elapsed=time.monotonic() - started,
+            )
+            self._discard(response)
+            response = None
+            return result
+        finally:
+            if response is not None:
+                self._discard(response)
+
+
+    def download(
+        self,
+        url: str,
+        headers: dict[str, str],
+        destination: Path,
+        max_bytes: int,
+        stop_event: threading.Event,
+    ) -> TransportFileResponse:
+        ensure_frozen_bundle_available()
+        started = time.monotonic()
+        current_url = url
+        response = None
+        try:
+            for _ in range(11):
+                response = self.pool.request(
+                    "GET", current_url, headers=headers, preload_content=False,
+                    redirect=False, retries=False, timeout=self.timeout,
+                )
+                if int(response.status) not in {301, 302, 303, 307, 308}:
+                    break
+                location = response.headers.get("Location")
+                if not location:
+                    break
+                self._discard(response)
+                response = None
+                current_url = urllib.parse.urljoin(current_url, location)
+            else:
+                raise RuntimeError(f"too many redirects: {url}")
+            assert response is not None
+            announced = response.headers.get("Content-Length")
+            if announced and str(announced).isdigit() and int(announced) > max_bytes:
+                raise RuntimeError(f"response exceeds {max_bytes:,} bytes")
+            total, content_hash, preview = _write_limited(
+                response.stream(amt=1024 * 1024, decode_content=True),
+                destination, max_bytes, stop_event,
+            )
+            result = TransportFileResponse(
+                status=int(response.status),
+                headers=_copy_headers(response.headers.items()),
+                final_url=current_url,
+                path=destination,
+                bytes_written=total,
+                content_hash=content_hash,
+                preview=preview,
                 backend=self.name,
                 elapsed=time.monotonic() - started,
             )
@@ -394,6 +526,73 @@ class CurlBackend:
                 data=data,
                 backend=self.name,
                 elapsed=time.monotonic() - started,
+            )
+
+
+    def download(
+        self,
+        url: str,
+        headers: dict[str, str],
+        destination: Path,
+        max_bytes: int,
+        stop_event: threading.Event,
+    ) -> TransportFileResponse:
+        ensure_frozen_bundle_available()
+        started = time.monotonic()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory(prefix="archive-scout-curl-") as temp_dir:
+            header_path = Path(temp_dir) / "headers.txt"
+            command = [
+                self.executable, "--location", "--compressed", "--http1.1",
+                "--silent", "--show-error", "--connect-timeout", str(int(self.connect_timeout)),
+                "--max-time", str(int(self.connect_timeout + self.read_timeout)),
+                "--max-filesize", str(int(max_bytes)), "--dump-header", str(header_path),
+                "--output", str(destination), "--write-out", "%{http_code}\n%{url_effective}",
+            ]
+            for key, value in headers.items():
+                command.extend(["--header", f"{key}: {value}"])
+            command.extend(["--", url])
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            proc = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                creationflags=creationflags,
+            )
+            while proc.poll() is None:
+                if stop_event.wait(0.2):
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    destination.unlink(missing_ok=True)
+                    raise Stopped
+            stdout, stderr = proc.communicate()
+            if proc.returncode != 0:
+                destination.unlink(missing_ok=True)
+                message = (stderr or stdout or f"curl exited {proc.returncode}").strip()
+                if proc.returncode == 28:
+                    raise TimeoutError(message)
+                raise OSError(message)
+            size = destination.stat().st_size if destination.exists() else 0
+            if size > max_bytes:
+                destination.unlink(missing_ok=True)
+                raise RuntimeError(f"response exceeds {max_bytes:,} bytes")
+            digest = hashlib.sha256()
+            preview = bytearray()
+            with destination.open("rb") as handle:
+                while chunk := handle.read(1024 * 1024):
+                    if stop_event.is_set():
+                        destination.unlink(missing_ok=True)
+                        raise Stopped
+                    digest.update(chunk)
+                    if len(preview) < 20_000:
+                        preview.extend(chunk[: 20_000 - len(preview)])
+            lines = stdout.splitlines()
+            status = int(lines[-2]) if len(lines) >= 2 and lines[-2].isdigit() else 0
+            final_url = lines[-1] if lines else url
+            raw_headers = header_path.read_text(encoding="iso-8859-1", errors="replace") if header_path.exists() else ""
+            return TransportFileResponse(
+                status=status, headers=self._parse_headers(raw_headers), final_url=final_url,
+                path=destination, bytes_written=size, content_hash=digest.hexdigest(),
+                preview=bytes(preview), backend=self.name, elapsed=time.monotonic() - started,
             )
 
 
@@ -510,4 +709,51 @@ class ResilientTransport:
                 break
             if self.callback:
                 self.callback(f"Network backend {name} failed during connection setup; trying another connection method…")
+        raise TransportExhaustedError(url, failures)
+
+    def download(
+        self,
+        url: str,
+        headers: dict[str, str],
+        destination: Path,
+        max_bytes: int,
+        stop_event: threading.Event,
+    ) -> TransportFileResponse:
+        failures: list[tuple[str, BaseException]] = []
+        for name in self._ordered_names():
+            if stop_event.is_set():
+                raise Stopped
+            backend = self.backends[name]
+            try:
+                response = backend.download(url, headers, destination, max_bytes, stop_event)
+                with self.lock:
+                    changed = self.last_success != name
+                    self.last_success = name
+                    self.cooldown_until.pop(name, None)
+                if changed and self.callback:
+                    self.callback(f"Network backend: {name}")
+                return response
+            except Stopped:
+                raise
+            except RuntimeError as exc:
+                if str(exc).startswith("response exceeds") or "too many redirects" in str(exc):
+                    raise
+                failures.append((name, exc))
+            except Exception as exc:
+                failures.append((name, exc))
+            destination.unlink(missing_ok=True)
+            with self.lock:
+                self.cooldown_until[name] = time.monotonic() + 30.0
+            last_error = failures[-1][1]
+            if is_transport_read_timeout(last_error):
+                if self.callback:
+                    self.callback(
+                        f"Network backend {name} reached Wayback but the response timed out; "
+                        "requeueing without repeating the full timeout on every backend…"
+                    )
+                break
+            if self.callback:
+                self.callback(
+                    f"Network backend {name} failed during connection setup; trying another connection method…"
+                )
         raise TransportExhaustedError(url, failures)

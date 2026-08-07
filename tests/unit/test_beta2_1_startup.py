@@ -10,8 +10,8 @@ class Beta21StartupTests(unittest.TestCase):
     def test_main_window_imports_bounded_event_queue(self):
         self.assertIs(main_window.CoalescingEventQueue, CoalescingEventQueue)
 
-    def test_public_version_is_beta_2_1(self):
-        self.assertEqual(main_window.VERSION, "3.0.0-beta.2.1")
+    def test_public_version_is_beta_2_2(self):
+        self.assertEqual(main_window.VERSION, "3.0.0-beta.2.2")
 
 
 if __name__ == "__main__":

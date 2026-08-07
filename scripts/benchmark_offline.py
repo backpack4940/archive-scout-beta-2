@@ -16,6 +16,8 @@ from archive_scout.cdx.client import parse_cdx_text_rows
 from archive_scout.database.connection import DATABASE_NAME, open_database
 from archive_scout.database.repositories import result_rows, upsert_captures
 from archive_scout.reports.export import export_scan
+from archive_scout.scanning.keywords import compile_keywords, compile_prefilter
+from archive_scout.scanning.scoring import analyze_content, prepare_analysis_fields
 from archive_scout.utils import utc_now
 
 
@@ -167,7 +169,46 @@ def run(args: argparse.Namespace) -> dict:
             parsed_count += len(parse_cdx_text_rows(cdx_payload(start, count), "https://example.invalid/cdx").rows)
         return parsed_count
 
-    results = [measure("parse_cdx_chunks", parse_rows)]
+    def literal_prefilter():
+        patterns = compile_keywords(
+            [f"benchmark-keyword-{index}" for index in range(args.keyword_patterns - 1)]
+            + ["lost media archive"]
+        )
+        prefilter = compile_prefilter(patterns)
+        matched = 0
+        for index in range(args.keyword_searches):
+            value = "ordinary archived page text"
+            if index == args.keyword_searches - 1:
+                value += " lost media archive"
+            matched += int(prefilter.matches({"body": value}, {"body": value}))
+        return matched
+
+    def literal_scoring():
+        patterns = compile_keywords(
+            [f"benchmark-keyword-{index}" for index in range(args.keyword_patterns - 1)]
+            + ["lost media archive"]
+        )
+        prefilter = compile_prefilter(patterns)
+        raw = "<html><body>ordinary archived page text lost media archive</body></html>"
+        visible = "ordinary archived page text lost media archive"
+        fields, normalized_fields = prepare_analysis_fields(
+            "http://example.com", "", visible, raw, []
+        )
+        score = 0
+        for _index in range(args.keyword_score_runs):
+            score += int(
+                analyze_content(
+                    "http://example.com", "", visible, raw, [], patterns, prefilter,
+                    fields, normalized_fields,
+                )["score"]
+            )
+        return score
+
+    results = [
+        measure("parse_cdx_chunks", parse_rows),
+        measure("literal_prefilter", literal_prefilter),
+        measure("literal_scoring", literal_scoring),
+    ]
     with tempfile.TemporaryDirectory(prefix="archive-scout-benchmark-") as temp:
         root = Path(temp)
         database = open_database(root)
@@ -186,8 +227,21 @@ def run(args: argparse.Namespace) -> dict:
                     upsert_captures(database, parsed.rows, target_id, "benchmark-cdx")
             return database.total_changes - before
 
+        unchanged_cdx_writes = 0
         if not args.skip_cdx_upsert:
             results.append(measure("parse_and_upsert_cdx_chunks", insert_rows))
+
+            def repeat_insert_rows():
+                before = database.total_changes
+                for start, count in cdx_chunks(args.cdx_rows, args.cdx_chunk_rows):
+                    parsed = parse_cdx_text_rows(cdx_payload(start, count), "https://example.invalid/cdx")
+                    with database:
+                        upsert_captures(database, parsed.rows, target_id, "benchmark-cdx")
+                return database.total_changes - before
+
+            repeated = measure("repeat_parse_and_noop_upsert", repeat_insert_rows)
+            unchanged_cdx_writes = int(repeated["result"])
+            results.append(repeated)
         scan_run_id = seed_results(database, root, args.result_rows, args.body_bytes)
         results.append(measure("browse_500", lambda: len(result_rows(database, scan_run_id, limit=500))))
         export_path = root / "benchmark-export.json"
@@ -212,6 +266,9 @@ def run(args: argparse.Namespace) -> dict:
             "body_bytes": args.body_bytes,
             "live_network": False,
             "cdx_upsert_skipped": args.skip_cdx_upsert,
+            "keyword_patterns": args.keyword_patterns,
+            "keyword_searches": args.keyword_searches,
+            "keyword_score_runs": args.keyword_score_runs,
         },
         "metrics": results,
         "database_size_bytes": database_size,
@@ -219,6 +276,7 @@ def run(args: argparse.Namespace) -> dict:
         "cdx_rows_inserted": inserted_cdx_rows,
         "http_attempts": 0,
         "duplicate_work": duplicate_work,
+        "unchanged_cdx_writes": unchanged_cdx_writes,
     }
 
 
@@ -229,10 +287,21 @@ def main() -> None:
     parser.add_argument("--skip-cdx-upsert", action="store_true")
     parser.add_argument("--result-rows", type=int, default=10_000)
     parser.add_argument("--body-bytes", type=int, default=8192)
+    parser.add_argument("--keyword-patterns", type=int, default=5000)
+    parser.add_argument("--keyword-searches", type=int, default=1000)
+    parser.add_argument("--keyword-score-runs", type=int, default=100)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    if args.cdx_rows < 1 or args.cdx_chunk_rows < 1 or args.result_rows < 1 or args.body_bytes < 1:
-        parser.error("row counts, chunk size, and body size must be positive")
+    if (
+        args.cdx_rows < 1
+        or args.cdx_chunk_rows < 1
+        or args.result_rows < 1
+        or args.body_bytes < 1
+        or args.keyword_patterns < 1
+        or args.keyword_searches < 1
+        or args.keyword_score_runs < 1
+    ):
+        parser.error("row counts, chunk sizes, body size, and keyword counts must be positive")
     report = run(args)
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:

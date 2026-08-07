@@ -1,3 +1,15 @@
+# Archive Scout 3.0 Beta 2.2
+
+Beta 2.2 is a performance-engine and reliability update. It retains Archive Scout's existing interface, project format, review workflow, analysis features, media controls, reports, recovery system, and schema version 5 while replacing several slow or memory-heavy execution paths.
+
+Literal keyword prefiltering now uses a compiled Aho-Corasick automaton rather than one increasingly large regular expression. Local rescans use bounded parallel workers, but SQLite remains single-owner and writes completed groups transactionally. Text and media queues prioritize known smaller captures, submit state changes in batches, and continue to use resumable keyset-backed work selection.
+
+Media bodies are streamed directly to temporary files, hashed incrementally, validated from a bounded preview, and atomically moved into place. Complete videos, images, or other large media files no longer need to exist in Python memory. Repeated indexing and rescanning also avoid rewriting unchanged CDX rows, documents, FTS entries, matches, and keyword-hit rows.
+
+The release adds focused regression tests and expands the offline benchmark to cover 5,000 literal patterns and a second 100,000-row CDX pass that must complete with zero database rewrites. Native release artifacts still require the normal GitHub Actions tests and packaged startup probes.
+
+---
+
 # Archive Scout 3.0 Beta 2.1
 
 Beta 2.1 fixes a macOS launch regression introduced by the Beta 2 bounded event queue. The main window now imports the queue implementation it instantiates during startup, preventing the application icon from bouncing once and immediately quitting.

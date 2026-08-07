@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.0-beta.2.2
+
+- Replaced the large literal-keyword alternation regex with a bounded pure-Python Aho-Corasick automaton while preserving required, excluded, exact, whole-word, case-sensitive, regex, scoring, snippet, and proximity behavior.
+- Parallelized local rescanning with a bounded worker pool while keeping all SQLite writes on the owning thread and committing completed worker groups together.
+- Changed media downloads to stream directly into `.part` files with incremental SHA-256 hashing and a bounded validation preview instead of holding complete media files in memory.
+- Prioritized known smaller text and media captures before large or unknown-size captures so useful results arrive sooner and worker memory remains predictable.
+- Batched capture and media state transitions when filling worker queues rather than opening a SQLite transaction for every submitted item.
+- Prevented unchanged CDX rows, media rows, documents, matches, keyword hits, and FTS rows from being rewritten during resume and rescan operations.
+- Increased bounded CDX and media upsert batches from 2,000 to 5,000 rows and added length-aware download indexes without changing schema version 5.
+- Added optional accelerated JSON decoding with a standard-library fallback; persisted JSON and keyword fingerprints retain their existing representation.
+- Expanded the deterministic offline benchmark with a 5,000-pattern literal prefilter profile and a repeated 100,000-row no-op upsert profile.
+- Added regression coverage for the automaton, excluded-only rule semantics, no-op persistence, size-aware queues, bounded parallel rescanning, and disk-streamed media downloads.
+- Preserved all existing project formats, user interfaces, operation modes, review data, reports, media controls, recovery behavior, and network pacing settings.
+
 ## 3.0.0-beta.2.1
 
 - Fixed the macOS launch regression where `ArchiveScoutApp` instantiated `CoalescingEventQueue` without importing it, causing the app icon to bounce once and quit before the window appeared.

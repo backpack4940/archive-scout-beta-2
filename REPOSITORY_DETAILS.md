@@ -2,7 +2,7 @@
 
 Product: `Archive Scout 3.0`
 
-Release: `3.0.0-beta.1.6`
+Release: `3.0.0-beta.2.2`
 
 Database schema: `5`
 
@@ -22,9 +22,9 @@ ArchiveScout-macOS-Universal.zip
 
 Each package has a corresponding `.sha256` file.
 
-## Unreleased hardening branch
+## Beta 2.2 performance-engine release
 
-The Beta 2 production-hardening work remains unreleased and intentionally keeps `3.0.0-beta.1.6`, Python package version `3.0.0b1.post8`, schema version 5, and the existing project format unchanged. The branch adds measured result/export improvements, bounded UI delivery, safer project merging, process-aware recovery, privacy-preserving diagnostics, offline benchmarks, and expanded pull-request CI.
+Archive Scout 3.0 Beta 2.2 is the current source release. It keeps Python package metadata `3.0.0b1.post8`, schema version 5, and the existing project format for compatibility with the established build and test workflows. Beta 2.2 adds compiled literal prefiltering, bounded parallel rescanning, streamed media transfers, size-aware work queues, no-op persistence for unchanged data, expanded offline benchmarks, and the earlier Beta 2 hardening and Beta 2.1 startup safeguards.
 
 ## Beta 1.6 scope
 
@@ -64,6 +64,6 @@ The dedicated operation completes the normal text index, downloads and scans sel
 
 The macOS build verifies `Contents/Resources/base_library.zip`, the executable, and every symbolic link before signing. It packages the signed application with `ditto`, extracts the completed ZIP into a clean temporary directory, and verifies the extracted bundle and code signature again.
 
-## Repository upload
+## Repository update
 
-Upload the contents of the extracted `archive-scout-3.0-beta1.6` folder to the repository root. The hidden `.github` folder must be included.
+Apply the Beta 2.2 changed-file payload with the supplied browser-only `apply-beta2-2-performance-engine.yml` workflow. The payload deliberately does not replace either established GitHub workflow. It removes generated build products before validation and explicitly commits only the documented source, tests, packaging metadata, and documentation paths.

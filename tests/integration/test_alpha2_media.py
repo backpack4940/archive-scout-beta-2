@@ -62,10 +62,20 @@ class Alpha2MediaTests(unittest.TestCase):
                 database = open_database(root)
                 index_media(config, database, threading.Event())
                 self.assertEqual(database.execute("SELECT COUNT(*) FROM media_captures").fetchone()[0], 1)
-                with patch("archive_scout.cdx.client.HttpClient.get", return_value={
-                    "data": b"JPEGDATA", "status": 200, "headers": {"Content-Type": "image/jpeg"},
-                    "final_url": "https://web.archive.org/web/20060102030405id_/http://example.com/images/photo.jpg",
-                }):
+                def fake_download(_client, _url, destination, _max_bytes, _accept="*/*"):
+                    data = b"JPEGDATA"
+                    Path(destination).write_bytes(data)
+                    return {
+                        "path": Path(destination),
+                        "bytes": len(data),
+                        "content_hash": "bd90ecf41be5fbd72e359c78c906c9eed0b2d764e6ebf28ca7a4bd9505f072b6",
+                        "preview": data,
+                        "status": 200,
+                        "headers": {"Content-Type": "image/jpeg"},
+                        "final_url": "https://web.archive.org/web/20060102030405id_/http://example.com/images/photo.jpg",
+                    }
+
+                with patch("archive_scout.cdx.client.HttpClient.download_to_path", fake_download):
                     download_media(config, database, threading.Event())
                 row = database.execute("SELECT state,path FROM media_captures").fetchone()
                 self.assertEqual(row["state"], "downloaded")

@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(3, 0, 0, 0),
-    prodvers=(3, 0, 0, 0),
+    filevers=(3, 0, 0, 22),
+    prodvers=(3, 0, 0, 22),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'Archive Scout contributors'),
           StringStruct('FileDescription', 'Archive Scout 3.0 public web archive research workspace'),
-          StringStruct('FileVersion', '3.0.0-beta.1.6'),
+          StringStruct('FileVersion', '3.0.0-beta.2.2'),
           StringStruct('InternalName', 'ArchiveScout'),
           StringStruct('LegalCopyright', 'Copyright (c) Archive Scout contributors'),
           StringStruct('OriginalFilename', 'ArchiveScout.exe'),
           StringStruct('ProductName', 'Archive Scout 3.0'),
-          StringStruct('ProductVersion', '3.0.0-beta.1.6')
+          StringStruct('ProductVersion', '3.0.0-beta.2.2')
         ]
       )
     ]),

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import random
 import re
 import threading
@@ -9,6 +8,7 @@ import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from typing import Callable, Iterable, TypeAlias
 
 import httpx
@@ -17,6 +17,7 @@ import urllib3
 from ..constants import RETRYABLE_STATUS
 from ..downloads.rate_limit import FixedRateLimiter, SharedHostGate
 from ..events import Stopped
+from ..json_codec import JSONDecodeErrors, loads as json_loads
 from ..network.transports import (
     ResilientTransport,
     TransportExhaustedError,
@@ -278,6 +279,132 @@ class HttpClient:
             except Exception:
                 # Do not leave a recovery probe marked in-flight when a local
                 # parser/validation defect escapes the network categories above.
+                self.host_gate.finish_request(permit, recovered=False)
+                raise
+
+    def download_to_path(
+        self,
+        url: str,
+        destination: Path,
+        max_bytes: int,
+        accept: str = "*/*",
+    ) -> dict:
+        """Stream a response to disk while retaining the normal Wayback policy."""
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": accept,
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Accept-Language": "en-US,en;q=0.8",
+        }
+        ensure_frozen_bundle_available()
+        generic_attempt = 0
+        rate_attempt = 0
+        total_rate_wait = 0.0
+        destination = Path(destination)
+
+        while True:
+            ensure_frozen_bundle_available()
+            destination.unlink(missing_ok=True)
+            permit = self.host_gate.acquire_request(self.stop_event)
+            try:
+                with self.limiter.slot(self.stop_event):
+                    if not self.host_gate.permit_is_current(permit):
+                        self.host_gate.finish_request(permit, recovered=False)
+                        continue
+                    response = self.transport.download(
+                        url, headers, destination, max_bytes, self.stop_event
+                    )
+                status = int(response.status)
+                retry_after_header = response.headers.get("retry-after") or response.headers.get("Retry-After")
+                if status == 429 or (status == 503 and retry_after_header):
+                    destination.unlink(missing_ok=True)
+                    retry_after = parse_retry_after(retry_after_header)
+                    rate_attempt += 1
+                    wait_seconds = self.host_gate.pause_for_rate_limit(retry_after, f"HTTP {status}")
+                    total_rate_wait += wait_seconds
+                    if self.retry_callback:
+                        self.retry_callback(
+                            rate_attempt, self.rate_limit_attempts,
+                            f"HTTP {status}; all Wayback requests paused", wait_seconds,
+                        )
+                    attempts_exhausted = self.rate_limit_attempts > 0 and rate_attempt >= self.rate_limit_attempts
+                    wait_exhausted = self.rate_limit_max_wait > 0 and total_rate_wait > self.rate_limit_max_wait
+                    if attempts_exhausted or wait_exhausted:
+                        raise RateLimitDeferred(
+                            f"Wayback continued returning HTTP {status} after {rate_attempt} coordinated pauses. Progress was saved for resume.",
+                            status=status, waited=total_rate_wait,
+                        )
+                    continue
+
+                self.host_gate.finish_request(permit, recovered=True)
+                if status >= 400:
+                    destination.unlink(missing_ok=True)
+                    if status not in RETRYABLE_STATUS:
+                        raise RuntimeError(f"HTTP {status}: {url}")
+                    generic_attempt += 1
+                    if generic_attempt >= self.retries:
+                        raise TransientRequestError(
+                            f"HTTP {status} after {self.retries} attempts: {url}",
+                            status=status, splittable=False,
+                        )
+                    self.retry_wait(generic_attempt - 1, f"HTTP {status}", parse_retry_after(retry_after_header))
+                    continue
+
+                return {
+                    "path": response.path,
+                    "bytes": response.bytes_written,
+                    "content_hash": response.content_hash,
+                    "preview": response.preview,
+                    "status": status,
+                    "headers": response.headers,
+                    "final_url": response.final_url,
+                    "backend": response.backend,
+                    "elapsed": response.elapsed,
+                }
+            except (RateLimitDeferred, Stopped):
+                destination.unlink(missing_ok=True)
+                self.host_gate.finish_request(permit, recovered=False)
+                raise
+            except RuntimeError as exc:
+                destination.unlink(missing_ok=True)
+                self.host_gate.finish_request(permit, recovered=False)
+                if isinstance(exc, TransientRequestError):
+                    raise
+                if is_missing_frozen_bundle_error(exc):
+                    raise frozen_bundle_error_from_exception(exc) from exc
+                if isinstance(exc, TransportExhaustedError):
+                    timed_out = is_timeout_error(exc)
+                    read_timed_out = bool(getattr(exc, "read_timed_out", False))
+                    generic_attempt += 1
+                    if generic_attempt >= self.retries:
+                        raise TransientRequestError(
+                            f"network failure for {url}: {exc}",
+                            timed_out=timed_out, read_timed_out=read_timed_out,
+                            connection_failed=bool(getattr(exc, "connection_failed", False)),
+                            splittable=False,
+                        ) from exc
+                    self.retry_wait(generic_attempt - 1, "read timeout" if timed_out else str(exc))
+                    continue
+                raise
+            except (httpx.HTTPError, urllib3.exceptions.HTTPError, TimeoutError, OSError) as exc:
+                destination.unlink(missing_ok=True)
+                self.host_gate.finish_request(permit, recovered=False)
+                if is_missing_frozen_bundle_error(exc):
+                    raise frozen_bundle_error_from_exception(exc) from exc
+                timed_out = is_timeout_error(exc)
+                read_timed_out = is_transport_read_timeout(exc)
+                generic_attempt += 1
+                if generic_attempt >= self.retries:
+                    raise TransientRequestError(
+                        f"network failure for {url}: {exc}", timed_out=timed_out,
+                        read_timed_out=read_timed_out,
+                        connection_failed=is_transport_connection_failure(exc),
+                        splittable=False,
+                    ) from exc
+                self.retry_wait(generic_attempt - 1, "read timeout" if timed_out else str(exc))
+            except Exception:
+                destination.unlink(missing_ok=True)
                 self.host_gate.finish_request(permit, recovered=False)
                 raise
 
@@ -550,8 +677,8 @@ def parse_json_response(data: bytes, endpoint: str = "") -> object:
     if not raw:
         return []
     try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
+        return json_loads(raw)
+    except JSONDecodeErrors as exc:
         around = raw[max(0, exc.pos - 160): exc.pos + 160]
         preview = clean_space(around or raw[:320])
         raise MalformedCDXResponse(

@@ -60,9 +60,9 @@ def retry_error_urls(
         callback(ProgressEvent("retry", f"Retrying {len(download_capture_ids):,} downloads and {len(local_document_ids):,} local scans"))
     if local_document_ids:
         if len(jobs) == 1:
-            rescan_documents(database, jobs[0].scan_run_id, jobs[0].rules, stop_event, callback, local_document_ids)
+            rescan_documents(database, jobs[0].scan_run_id, jobs[0].rules, stop_event, callback, local_document_ids, workers=config.workers)
         else:
-            rescan_keyword_sets(database, jobs, stop_event, callback, local_document_ids)
+            rescan_keyword_sets(database, jobs, stop_event, callback, local_document_ids, workers=config.workers)
     if download_capture_ids:
         if len(jobs) == 1:
             download_archive(

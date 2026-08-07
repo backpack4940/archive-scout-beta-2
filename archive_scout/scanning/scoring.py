@@ -16,11 +16,20 @@ PARAGRAPH_SPLIT = re.compile(r"(?:\r?\n){2,}|</p\s*>|<br\s*/?>\s*<br\s*/?>", re.
 WORD_PATTERN = re.compile(r"\S+")
 
 
-def link_is_interesting(link: str, patterns: list[CompiledRule]) -> bool:
+def link_is_interesting(
+    link: str,
+    patterns: list[CompiledRule],
+    prefilter: KeywordPrefilter | None = None,
+) -> bool:
     parsed = safe_urlsplit(link)
     extension = Path(parsed.path).suffix.lower() if parsed else ""
     if extension in MEDIA_EXTENSIONS or extension in ARCHIVE_EXTENSIONS:
         return True
+    if prefilter is not None:
+        if not prefilter.has_positive_rules:
+            return False
+        normalized = normalize_search(link)
+        return prefilter.matches({"url": link}, {"url": normalized})
     return keyword_url_match(link, patterns)
 
 
@@ -132,6 +141,11 @@ def analyze_content(
                 "score_bonus": 0,
             },
         }
+    evaluation_patterns = (
+        prefilter.candidate_rules(fields, normalized_fields)
+        if prefilter is not None
+        else patterns
+    )
     multipliers = {"url": 6.0, "title": 5.0, "body": 1.0, "source": 0.75, "links": 2.5}
     hits: Counter[str] = Counter()
     hit_fields: dict[str, set[str]] = {}
@@ -142,7 +156,7 @@ def analyze_content(
 
     for field_name, value in fields.items():
         normalized_value = normalized_fields[field_name]
-        for item in patterns:
+        for item in evaluation_patterns:
             matches = _matches(item, value, normalized_value)
             count = len(matches)
             if not count:
@@ -172,7 +186,7 @@ def analyze_content(
 
     if excluded or missing_required:
         score = 0
-    interesting_links = sorted({link for link in links if link_is_interesting(link, patterns)})
+    interesting_links = sorted({link for link in links if link_is_interesting(link, patterns, prefilter)})
     positive_patterns = [item for item in matched_rules.values() if item.rule.kind != "excluded"]
     snippets = make_snippets(visible or raw, positive_patterns) if positive_patterns else []
     return {

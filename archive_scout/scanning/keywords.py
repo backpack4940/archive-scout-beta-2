@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Iterable
 
 from ..utils import normalize_search
+from .automaton import LiteralAutomaton
 
 RULE_PREFIXES = {
     "required": "required",
@@ -168,38 +169,92 @@ def keyword_url_match(url: str, patterns: list[CompiledRule]) -> bool:
 
 @dataclass(slots=True)
 class KeywordPrefilter:
-    literal_pattern: re.Pattern[str] | None
+    positive_automaton: LiteralAutomaton | None
+    candidate_automaton: LiteralAutomaton | None
+    literal_rules: dict[str, tuple[CompiledRule, ...]]
+    positive_slow_patterns: list[CompiledRule]
     slow_patterns: list[CompiledRule]
     has_positive_rules: bool
 
     def matches(self, fields: dict[str, str], normalized_fields: dict[str, str]) -> bool:
         if not self.has_positive_rules:
             return True
-        if self.literal_pattern is not None:
+        if self.positive_automaton is not None:
             for value in normalized_fields.values():
-                if self.literal_pattern.search(value):
+                if self.positive_automaton.search_any(value):
                     return True
-        for item in self.slow_patterns:
+        for item in self.positive_slow_patterns:
             for field_name, value in fields.items():
                 haystack = value if item.rule.case_sensitive else normalized_fields[field_name]
                 if item.pattern.search(haystack):
                     return True
         return False
 
+    def candidate_rules(
+        self,
+        fields: dict[str, str],
+        normalized_fields: dict[str, str],
+    ) -> list[CompiledRule]:
+        """Return only rules that can match at least one prepared field.
+
+        Literal candidates are discovered in linear time with Aho-Corasick. Rules
+        requiring regex, case-sensitive, or whole-word semantics stay on the
+        exact regex path so their behavior is unchanged.
+        """
+        selected: list[CompiledRule] = []
+        seen: set[int] = set()
+        if self.candidate_automaton is not None:
+            expressions: set[str] = set()
+            for value in normalized_fields.values():
+                expressions.update(self.candidate_automaton.find(value))
+            for expression in expressions:
+                for item in self.literal_rules.get(expression, ()):
+                    marker = id(item)
+                    if marker not in seen:
+                        seen.add(marker)
+                        selected.append(item)
+        for item in self.slow_patterns:
+            marker = id(item)
+            if marker not in seen:
+                seen.add(marker)
+                selected.append(item)
+        return selected
+
 
 def compile_prefilter(patterns: list[CompiledRule]) -> KeywordPrefilter:
     positive = [item for item in patterns if item.rule.kind != "excluded"]
-    literals: list[str] = []
+    positive_literals: list[str] = []
+    all_literals: list[str] = []
+    literal_rules: dict[str, list[CompiledRule]] = {}
+    positive_slow: list[CompiledRule] = []
     slow: list[CompiledRule] = []
-    for item in positive:
+    for item in patterns:
         if item.rule.kind != "regex" and not item.rule.case_sensitive and not item.rule.whole_word:
             normalized = normalize_search(item.rule.expression)
             if normalized:
-                literals.append(re.escape(normalized).replace(r"\ ", r"\s+"))
-        else:
-            slow.append(item)
-    literal_pattern = None
-    if literals:
-        unique = sorted(set(literals), key=lambda value: (-len(value), value))
-        literal_pattern = re.compile("(?:" + "|".join(unique) + ")")
-    return KeywordPrefilter(literal_pattern, slow, bool(positive))
+                all_literals.append(normalized)
+                literal_rules.setdefault(normalized, []).append(item)
+                if item.rule.kind != "excluded":
+                    positive_literals.append(normalized)
+                continue
+        slow.append(item)
+        if item.rule.kind != "excluded":
+            positive_slow.append(item)
+    positive_automaton = None
+    if positive_literals:
+        positive_automaton = LiteralAutomaton(
+            sorted(set(positive_literals), key=lambda value: (-len(value), value))
+        )
+    candidate_automaton = None
+    if all_literals:
+        candidate_automaton = LiteralAutomaton(
+            sorted(set(all_literals), key=lambda value: (-len(value), value))
+        )
+    return KeywordPrefilter(
+        positive_automaton,
+        candidate_automaton,
+        {key: tuple(value) for key, value in literal_rules.items()},
+        positive_slow,
+        slow,
+        bool(positive),
+    )

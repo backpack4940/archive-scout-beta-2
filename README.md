@@ -2,9 +2,13 @@
 
 Archive Scout is a cross-platform desktop research application for indexing public Wayback Machine captures, downloading archived pages and media, searching saved material, reconstructing forums, recovering legacy embeds, comparing snapshots, and reviewing large archive projects.
 
-Archive Scout 3.0 Beta 2.1 is the current source release. It preserves database schema version 5 and the established project format while combining the Beta 1 indexing, network-recovery, media, and large-project stability work with the Beta 2 memory, export, merge, interface, diagnostics, and cross-platform hardening pass. Beta 2.1 fixes the immediate macOS startup failure present in the initial Beta 2 package.
+Archive Scout 3.0 Beta 2.2 is the current source release. It preserves database schema version 5 and the established project format while combining the Beta 1 indexing, network-recovery, media, and large-project stability work with the Beta 2 memory, export, merge, interface, diagnostics, and cross-platform hardening pass. Beta 2.1 fixed the immediate macOS startup failure present in the initial Beta 2 package. Beta 2.2 replaces several slow and memory-heavy indexing, rescanning, persistence, and media-download paths while preserving the interface and project format.
 
 One repository produces builds for Windows x64, Linux x64, and universal macOS for Intel and Apple Silicon.
+
+## Beta 2.2 performance engine
+
+Beta 2.2 adds compiled multi-pattern literal prefiltering, bounded parallel local rescans, size-aware work queues, batched queue transitions, no-op persistence for unchanged rows, and direct-to-disk media streaming with incremental hashing. These changes operate behind the existing interface and preserve schema version 5, review state, reports, project recovery, media settings, and network pacing.
 
 ## Beta 2 hardening
 
@@ -25,9 +29,9 @@ See [offline benchmark methodology and measurements](docs/BENCHMARKS.md).
 
 ## Downloads
 
-- [Download for Windows x64](https://github.com/backpack4940/archive-scout-beta-2/releases/download/v1.0.0-beta.2.1/ArchiveScout-Windows-x64.zip)
-- [Download for Linux x64](https://github.com/backpack4940/archive-scout-beta-2/releases/download/v1.0.0-beta.2.1/ArchiveScout-Linux-x64.zip)
-- [Download for macOS Intel and Apple Silicon](https://github.com/backpack4940/archive-scout-beta-2/releases/download/v1.0.0-beta.2.1/ArchiveScout-macOS-Universal.zip)
+- [Download for Windows x64](../../releases/latest/download/ArchiveScout-Windows-x64.zip)
+- [Download for Linux x64](../../releases/latest/download/ArchiveScout-Linux-x64.tar.gz)
+- [Download for macOS Intel and Apple Silicon](../../releases/latest/download/ArchiveScout-macOS-Universal.zip)
 
 ### macOS installation
 

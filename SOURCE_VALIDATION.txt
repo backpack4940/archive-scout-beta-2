@@ -1,36 +1,35 @@
-Archive Scout 3.0.0-beta.1.6 source validation
+Archive Scout 3.0.0-beta.2.2 source validation
 
 Completed locally before packaging:
-- 113 unit, migration, integration, packaging, interface, and workflow regression tests passed under Xvfb
-- a complete synthetic resume-key index committed 50,000 captures and completed normally
-- a compact 50,000-row parser test and a bounded 50,000-row SQLite insert test passed
-- oversized CDX bodies and parser MemoryError conditions became resumable splittable work
-- complete resume and paged connection failures paused after three saved attempts
-- large explicit text and media retry selections passed with 1,200 IDs without exceeding SQLite parameter limits
+- 134 unit, migration, integration, packaging, interface, recovery, and performance-engine tests ran successfully; one display-dependent theme test was skipped because no graphical display was available
 - python compileall completed for archive_scout, tests, and scripts
-- 120 Python files parsed with ast.parse
-- 71 archive_scout modules imported successfully under Xvfb (archive_scout.__main__ excluded because importing it launches the GUI)
-- both GitHub workflow files parsed as YAML
-- Linux shell scripts passed bash syntax validation
-- full GUI/test suite passed under a virtual display
+- every Python source file parsed successfully with ast.parse
+- both existing GitHub workflow files parsed as YAML without being modified by the Beta 2.2 payload
+- Linux and macOS shell scripts passed bash syntax validation
 - no broken symbolic links were present
-- the fixed CDX request-start interval remained 0.75 seconds (80 starts per minute)
-- the 50,000-row resume limit and nine-block numbered pages remained enabled
-- nine-block page concurrency is memory-capped at four resident results; small pages may still use all ten configured workers
+- the application source version is 3.0.0-beta.2.2
 - the database schema remains version 5
-- existing timeout, 429, malformed-CDX, media, analysis, merge, backup, repair, icon, date, signing, external-media, and macOS packaging tests remained passing
+- existing projects, interface pages, operation modes, keyword semantics, review data, reports, analysis, media settings, recovery, merge, backup, repair, diagnostics, and network pacing remain supported
+- a 5,000-pattern literal matcher, excluded-only keyword semantics, unchanged-row persistence, size-aware text/media queues, bounded parallel rescanning, and streamed media transfers have dedicated regressions
+- a repeated local rescan of unchanged files produced zero SQLite writes
+- a repeated 100,000-row CDX upsert produced unchanged_cdx_writes=0
+- media transfer tests verify that the built-in path uses download_to_path rather than a complete in-memory response body
 
-Focused memory measurement:
-- synthetic payload: 5,977,794 bytes / 50,000 rows
-- former decoded-list/dictionary parser traced peak: 50,423,415 bytes
-- Beta 1.6 compact parser traced peak: 22,824,796 bytes
-- focused parser-allocation reduction: 54.7 percent
-- input payload allocation excluded from both measurements
+Focused local measurements under Python 3.13.5:
+- 5,000-rule prefilter construction fell from 0.847787 seconds and 14,846,671 bytes traced peak memory to 0.440710 seconds and 4,632,666 bytes
+- 100 scoring passes across 5,000 rules fell from 5.455271 seconds to 0.035966 seconds while producing the same aggregate score
+- a 500-document local rescan fell from 12.419591 seconds to 11.378350 seconds
+- the standard benchmark parsed 100,000 CDX rows in 2.143672 seconds with 23,847,113 bytes traced peak memory
+- the standard benchmark inserted 100,000 rows in 4.132804 seconds and then resubmitted the same fixture with zero database writes
+- the million-row parser completed twenty 50,000-row chunks in 21.134820 seconds with 24,047,119 bytes traced peak memory
+- every offline benchmark recorded zero HTTP attempts
 
-Still required or unavailable locally:
+Packaging and validation boundaries:
+- these local measurements compare implementations in one Linux container and are not universal performance guarantees
+- supported release CI remains Python 3.11 and Python 3.12 on Windows, Linux, Intel macOS, and Apple Silicon macOS
+- an isolated local pip build could not fetch setuptools from the offline package index; source tests and compile validation did complete
 - no live Internet Archive stress test was performed
 - no native Windows, Linux, or universal macOS package was built in this container
-- no native Windows Defender or SmartScreen scan was possible
-- PowerShell was unavailable, so Windows PowerShell build/signing scripts were not executed locally
-- GitHub Actions must run the six-job test matrix and all three native package jobs
-- each generated package should be smoke-tested on real hardware, including a proxy/strict-security Windows machine and low-memory macOS hardware
+- no Windows Defender or SmartScreen scan was possible
+- the existing eight-job Tests workflow and all native package jobs must complete from the resulting GitHub commit
+- each generated package should be smoke-tested on real hardware before a public tag is created

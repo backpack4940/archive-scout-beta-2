@@ -100,11 +100,16 @@ def upsert_captures(
             digest=excluded.digest,
             length=excluded.length,
             updated_at=excluded.updated_at
+        WHERE captures.target_id IS NOT excluded.target_id
+           OR captures.mimetype IS NOT excluded.mimetype
+           OR captures.statuscode IS NOT excluded.statuscode
+           OR captures.digest IS NOT excluded.digest
+           OR captures.length IS NOT excluded.length
         """
     batch: list[tuple] = []
     for row in rows:
         batch.append(_capture_values(row, target_id, query_signature, now))
-        if len(batch) >= 2000:
+        if len(batch) >= 5000:
             database.executemany(statement, batch)
             batch.clear()
     if batch:
@@ -240,17 +245,33 @@ def upsert_document(
     size_bytes: int,
 ) -> int:
     now = utc_now()
-    row = database.execute("SELECT id FROM documents WHERE capture_id=?", (capture_id,)).fetchone()
+    row = database.execute(
+        """SELECT id,path,title,links_json,content_hash,normalized_hash,size_bytes
+           FROM documents WHERE capture_id=?""",
+        (capture_id,),
+    ).fetchone()
     links_json = json.dumps(links, ensure_ascii=False)
+    document_changed = True
     if row:
         document_id = int(row["id"])
-        database.execute(
-            """
-            UPDATE documents SET path=?,title=?,body_text=?,links_json=?,content_hash=?,normalized_hash=?,size_bytes=?,updated_at=?
-            WHERE id=?
-            """,
-            (str(path), title, body_text, links_json, content_hash, normalized_hash, size_bytes, now, document_id),
+        document_changed = any(
+            (
+                str(row["path"] or "") != str(path),
+                str(row["title"] or "") != title,
+                str(row["links_json"] or "") != links_json,
+                str(row["content_hash"] or "") != content_hash,
+                str(row["normalized_hash"] or "") != normalized_hash,
+                int(row["size_bytes"] or 0) != int(size_bytes),
+            )
         )
+        if document_changed:
+            database.execute(
+                """
+                UPDATE documents SET path=?,title=?,body_text=?,links_json=?,content_hash=?,normalized_hash=?,size_bytes=?,updated_at=?
+                WHERE id=?
+                """,
+                (str(path), title, body_text, links_json, content_hash, normalized_hash, size_bytes, now, document_id),
+            )
     else:
         cursor = database.execute(
             """
@@ -261,22 +282,39 @@ def upsert_document(
         )
         document_id = int(cursor.lastrowid)
     database.execute(
-        "UPDATE captures SET document_id=?,state='downloaded',bytes_saved=?,updated_at=? WHERE id=?",
-        (document_id, size_bytes, now, capture_id),
+        """UPDATE captures SET document_id=?,state='downloaded',bytes_saved=?,updated_at=?
+           WHERE id=? AND (document_id IS NOT ? OR state IS NOT 'downloaded' OR bytes_saved IS NOT ?)""",
+        (document_id, size_bytes, now, capture_id, document_id, int(size_bytes)),
     )
-    fts_enabled = database.execute("SELECT value FROM project_meta WHERE key='fts5'").fetchone()
-    if fts_enabled and fts_enabled["value"] == "1":
-        original = database.execute("SELECT original_url FROM captures WHERE id=?", (capture_id,)).fetchone()["original_url"]
-        database.execute("DELETE FROM documents_fts WHERE rowid=?", (document_id,))
-        database.execute(
-            "INSERT INTO documents_fts(rowid,title,body_text,original_url) VALUES(?,?,?,?)",
-            (document_id, title, body_text, original),
-        )
+    if document_changed:
+        fts_enabled = database.execute("SELECT value FROM project_meta WHERE key='fts5'").fetchone()
+        if fts_enabled and fts_enabled["value"] == "1":
+            original = database.execute("SELECT original_url FROM captures WHERE id=?", (capture_id,)).fetchone()["original_url"]
+            database.execute("DELETE FROM documents_fts WHERE rowid=?", (document_id,))
+            database.execute(
+                "INSERT INTO documents_fts(rowid,title,body_text,original_url) VALUES(?,?,?,?)",
+                (document_id, title, body_text, original),
+            )
     return document_id
 
 
 def save_match(database: sqlite3.Connection, scan_run_id: int, document_id: int, analysis: dict) -> int:
     now = utc_now()
+    values = (
+        scan_run_id,
+        document_id,
+        int(round(float(analysis.get("score") or 0))),
+        json.dumps(analysis.get("hits") or {}, ensure_ascii=False, sort_keys=True),
+        json.dumps(analysis.get("hit_fields") or {}, ensure_ascii=False, sort_keys=True),
+        json.dumps(analysis.get("snippets") or [], ensure_ascii=False),
+        json.dumps(analysis.get("interesting_links") or [], ensure_ascii=False),
+        int(bool(analysis.get("excluded"))),
+        int(bool(analysis.get("required_missing"))),
+        json.dumps(analysis.get("proximity") or {}, ensure_ascii=False, sort_keys=True),
+        now,
+        now,
+    )
+    before = database.total_changes
     database.execute(
         """
         INSERT INTO document_matches(
@@ -288,34 +326,35 @@ def save_match(database: sqlite3.Connection, scan_run_id: int, document_id: int,
             snippets_json=excluded.snippets_json,interesting_links_json=excluded.interesting_links_json,
             excluded=excluded.excluded,required_missing=excluded.required_missing,
             proximity_json=excluded.proximity_json,updated_at=excluded.updated_at
+        WHERE document_matches.score IS NOT excluded.score
+           OR document_matches.hits_json IS NOT excluded.hits_json
+           OR document_matches.fields_json IS NOT excluded.fields_json
+           OR document_matches.snippets_json IS NOT excluded.snippets_json
+           OR document_matches.interesting_links_json IS NOT excluded.interesting_links_json
+           OR document_matches.excluded IS NOT excluded.excluded
+           OR document_matches.required_missing IS NOT excluded.required_missing
+           OR document_matches.proximity_json IS NOT excluded.proximity_json
         """,
-        (
-            scan_run_id,
-            document_id,
-            int(round(float(analysis.get("score") or 0))),
-            json.dumps(analysis.get("hits") or {}, ensure_ascii=False, sort_keys=True),
-            json.dumps(analysis.get("hit_fields") or {}, ensure_ascii=False, sort_keys=True),
-            json.dumps(analysis.get("snippets") or [], ensure_ascii=False),
-            json.dumps(analysis.get("interesting_links") or [], ensure_ascii=False),
-            int(bool(analysis.get("excluded"))),
-            int(bool(analysis.get("required_missing"))),
-            json.dumps(analysis.get("proximity") or {}, ensure_ascii=False, sort_keys=True),
-            now,
-            now,
-        ),
+        values,
     )
+    match_changed = database.total_changes > before
     row = database.execute(
         "SELECT id FROM document_matches WHERE scan_run_id=? AND document_id=?",
         (scan_run_id, document_id),
     ).fetchone()
     match_id = int(row["id"])
-    database.execute("DELETE FROM keyword_hits WHERE match_id=?", (match_id,))
-    fields = analysis.get("hit_fields") or {}
-    for label, count in (analysis.get("hits") or {}).items():
-        database.execute(
-            "INSERT INTO keyword_hits(match_id,label,count,fields_json) VALUES(?,?,?,?)",
-            (match_id, label, int(count), json.dumps(fields.get(label, []), ensure_ascii=False)),
-        )
+    if match_changed:
+        database.execute("DELETE FROM keyword_hits WHERE match_id=?", (match_id,))
+        fields = analysis.get("hit_fields") or {}
+        hit_rows = [
+            (match_id, label, int(count), json.dumps(fields.get(label, []), ensure_ascii=False))
+            for label, count in (analysis.get("hits") or {}).items()
+        ]
+        if hit_rows:
+            database.executemany(
+                "INSERT INTO keyword_hits(match_id,label,count,fields_json) VALUES(?,?,?,?)",
+                hit_rows,
+            )
     database.execute("INSERT OR IGNORE INTO reviews(match_id,status) VALUES(?,'unreviewed')", (match_id,))
     return match_id
 
@@ -615,6 +654,15 @@ def upsert_media_captures(
             digest=excluded.digest,
             length=excluded.length,
             updated_at=excluded.updated_at
+        WHERE media_captures.target_id IS NOT excluded.target_id
+           OR media_captures.source_document_id IS NOT COALESCE(excluded.source_document_id,media_captures.source_document_id)
+           OR media_captures.source_type IS NOT excluded.source_type
+           OR media_captures.media_kind IS NOT excluded.media_kind
+           OR media_captures.extension IS NOT excluded.extension
+           OR media_captures.mimetype IS NOT excluded.mimetype
+           OR media_captures.statuscode IS NOT excluded.statuscode
+           OR media_captures.digest IS NOT excluded.digest
+           OR media_captures.length IS NOT excluded.length
         """
     batch: list[tuple] = []
     for row, media_kind, extension in items:
@@ -637,7 +685,7 @@ def upsert_media_captures(
                 now,
             )
         )
-        if len(batch) >= 2000:
+        if len(batch) >= 5000:
             database.executemany(statement, batch)
             batch.clear()
     if batch:

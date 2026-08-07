@@ -226,7 +226,7 @@ def run_project(
         elif mode in {"download", "resume"}:
             download_archive(config, database, primary_run_id, stop_event, callback, states=("pending",), scan_jobs=jobs)
         elif mode == "rescan":
-            rescan_keyword_sets(database, jobs, stop_event, callback)
+            rescan_keyword_sets(database, jobs, stop_event, callback, workers=config.workers)
         elif mode == "retry_errors":
             retry_error_urls(config, database, primary_run_id, stop_event, callback, jobs)
             media_error_count = database.execute(

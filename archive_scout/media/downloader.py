@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import concurrent.futures
-import hashlib
 import os
 import re
 import sqlite3
@@ -41,25 +40,33 @@ def media_path(root: Path, row: sqlite3.Row, preserve_paths: bool) -> Path:
 
 
 def fetch_media(row: sqlite3.Row, config: ProjectConfig, client: HttpClient) -> dict:
-    response = client.get(replay_url(row["timestamp"], row["original_url"]), config.media.max_file_bytes)
-    data = response["data"]
-    content_type = (response["headers"].get("content-type") or response["headers"].get("Content-Type") or "").casefold()
-    if not data:
-        raise RuntimeError("empty media response")
-    if "text/html" in content_type:
-        preview = data[:20000].decode("utf-8", "ignore").casefold()
-        if "wayback machine" in preview or "not archived" in preview:
-            raise RuntimeError("invalid_wayback_replay")
     path = media_path(config.output_dir, row, config.media.preserve_paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(path.suffix + ".part")
-    temp.write_bytes(data)
+    response = client.download_to_path(
+        replay_url(row["timestamp"], row["original_url"]),
+        temp,
+        config.media.max_file_bytes,
+    )
+    content_type = (
+        response["headers"].get("content-type")
+        or response["headers"].get("Content-Type")
+        or ""
+    ).casefold()
+    if not int(response["bytes"]):
+        temp.unlink(missing_ok=True)
+        raise RuntimeError("empty media response")
+    if "text/html" in content_type:
+        preview = bytes(response["preview"]).decode("utf-8", "ignore").casefold()
+        if "wayback machine" in preview or "not archived" in preview:
+            temp.unlink(missing_ok=True)
+            raise RuntimeError("invalid_wayback_replay")
     os.replace(temp, path)
     return {
         "id": int(row["id"]),
         "path": path,
-        "bytes": len(data),
-        "hash": hashlib.sha256(data).hexdigest(),
+        "bytes": int(response["bytes"]),
+        "hash": str(response["content_hash"]),
         "status": response["status"],
         "final_url": response["final_url"],
     }
@@ -78,11 +85,26 @@ def iter_media_download_rows(
     ).fetchone()[0])
 
     def rows():
+        last_length = 0
         last_id = 0
         while True:
             batch = database.execute(
                 "SELECT * FROM media_captures WHERE " + where
-                + " AND id>? ORDER BY id LIMIT ?",
+                + " AND COALESCE(length,0)>0 AND (COALESCE(length,0),id)>(?,?)"
+                + " ORDER BY COALESCE(length,0),id LIMIT ?",
+                [*params, last_length, last_id, max(1, int(batch_size))],
+            ).fetchall()
+            if not batch:
+                break
+            for row in batch:
+                last_length = max(0, int(row["length"] or 0))
+                last_id = int(row["id"])
+                yield row
+        last_id = 0
+        while True:
+            batch = database.execute(
+                "SELECT * FROM media_captures WHERE " + where
+                + " AND COALESCE(length,0)<=0 AND id>? ORDER BY id LIMIT ?",
                 [*params, last_id, max(1, int(batch_size))],
             ).fetchall()
             if not batch:
@@ -166,23 +188,31 @@ def download_media(
         with concurrent.futures.ThreadPoolExecutor(max_workers=config.workers, thread_name_prefix="archive-media") as pool:
             futures: dict[concurrent.futures.Future, sqlite3.Row] = {}
     
-            def submit_next() -> bool:
-                try:
-                    row = next(row_iter)
-                except StopIteration:
-                    return False
-                if stop_event.is_set():
-                    raise Stopped
+            def submit_available() -> None:
+                slots = max_inflight - len(futures)
+                if slots <= 0:
+                    return
+                rows: list[sqlite3.Row] = []
+                for _ in range(slots):
+                    try:
+                        row = next(row_iter)
+                    except StopIteration:
+                        break
+                    if stop_event.is_set():
+                        raise Stopped
+                    rows.append(row)
+                if not rows:
+                    return
+                now = utc_now()
                 with database:
-                    database.execute(
+                    database.executemany(
                         "UPDATE media_captures SET state='downloading',download_attempts=download_attempts+1,updated_at=? WHERE id=?",
-                        (utc_now(), row["id"]),
+                        ((now, int(row["id"])) for row in rows),
                     )
-                futures[pool.submit(fetch_media, row, config, client)] = row
-                return True
+                for row in rows:
+                    futures[pool.submit(fetch_media, row, config, client)] = row
     
-            while len(futures) < max_inflight and submit_next():
-                pass
+            submit_available()
     
             while futures:
                 if stop_event.is_set():
@@ -237,8 +267,7 @@ def download_media(
                             complete, total,
                             {"errors": errors},
                         ))
-                    while len(futures) < max_inflight and submit_next():
-                        pass
+                    submit_available()
     
     
     finally:

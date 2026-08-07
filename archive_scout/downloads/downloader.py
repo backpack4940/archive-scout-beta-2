@@ -17,7 +17,7 @@ from ..content import classify_replay_content, decode_bytes, is_text_candidate, 
 from ..database.repositories import record_error, resolve_errors, save_match, upsert_document
 from ..events import ProgressEvent, Stopped
 from ..scanning.jobs import ScanJob
-from ..scanning.keywords import keyword_url_match
+from ..scanning.keywords import compile_prefilter
 from ..scanning.scoring import analyze_content, prepare_analysis_fields
 from ..utils import atomic_write_text, hash_text, normalize_search, utc_now
 from .rate_limit import FixedRateLimiter, SharedHostGate
@@ -49,7 +49,14 @@ def prepare_download_rows(
     """
     database.execute("DROP TABLE IF EXISTS temp.archive_scout_download_queue")
     database.execute(
-        "CREATE TEMP TABLE archive_scout_download_queue(id INTEGER PRIMARY KEY) WITHOUT ROWID"
+        """CREATE TEMP TABLE archive_scout_download_queue(
+               id INTEGER PRIMARY KEY,
+               priority INTEGER NOT NULL,
+               length INTEGER NOT NULL
+           ) WITHOUT ROWID"""
+    )
+    database.execute(
+        "CREATE INDEX archive_scout_download_queue_order ON archive_scout_download_queue(priority,length,id)"
     )
     database.execute("DROP TABLE IF EXISTS temp.archive_scout_capture_selection")
 
@@ -74,15 +81,16 @@ def prepare_download_rows(
 
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     cursor = database.execute(
-        "SELECT c.id,c.original_url,c.mimetype FROM " + source + where + " ORDER BY c.id",
+        "SELECT c.id,c.original_url,c.mimetype,c.length FROM " + source + where + " ORDER BY c.id",
         params,
     )
+    url_prefilter = compile_prefilter(patterns) if patterns else None
     now = utc_now()
     while True:
         chunk = cursor.fetchmany(2000)
         if not chunk:
             break
-        selected_ids: list[tuple[int]] = []
+        selected_ids: list[tuple[int, int, int]] = []
         binary_ids: list[int] = []
         keyword_skips: list[tuple[str, int]] = []
         for row in chunk:
@@ -90,14 +98,21 @@ def prepare_download_rows(
             if not is_text_candidate(row["original_url"], row["mimetype"] or ""):
                 binary_ids.append(capture_id)
                 continue
-            if config.download_scope == "keyword_urls" and patterns and not keyword_url_match(row["original_url"], patterns):
-                keyword_skips.append((now, capture_id))
-                continue
-            selected_ids.append((capture_id,))
+            if config.download_scope == "keyword_urls" and url_prefilter is not None:
+                original_url = str(row["original_url"])
+                normalized_url = normalize_search(original_url)
+                if (
+                    not url_prefilter.has_positive_rules
+                    or not url_prefilter.matches({"url": original_url}, {"url": normalized_url})
+                ):
+                    keyword_skips.append((now, capture_id))
+                    continue
+            length = max(0, int(row["length"] or 0))
+            selected_ids.append((capture_id, 1 if length <= 0 else 0, length))
         with database:
             if selected_ids:
                 database.executemany(
-                    "INSERT OR IGNORE INTO archive_scout_download_queue(id) VALUES(?)",
+                    "INSERT OR IGNORE INTO archive_scout_download_queue(id,priority,length) VALUES(?,?,?)",
                     selected_ids,
                 )
             if keyword_skips:
@@ -124,19 +139,25 @@ def prepare_download_rows(
     ).fetchone()[0])
 
     def iter_rows() -> Iterator[sqlite3.Row]:
+        last_priority = -1
+        last_length = -1
         last_id = 0
         while True:
             batch = database.execute(
                 """
                 SELECT c.* FROM captures c
                 JOIN archive_scout_download_queue q ON q.id=c.id
-                WHERE c.id>? ORDER BY c.id LIMIT 1000
+                WHERE (q.priority,q.length,q.id)>(?,?,?)
+                ORDER BY q.priority,q.length,q.id LIMIT 1000
                 """,
-                (last_id,),
+                (last_priority, last_length, last_id),
             ).fetchall()
             if not batch:
                 return
             for row in batch:
+                length = max(0, int(row["length"] or 0))
+                last_priority = 1 if length <= 0 else 0
+                last_length = length
                 last_id = int(row["id"])
                 yield row
 
@@ -281,23 +302,31 @@ def download_archive(
         with concurrent.futures.ThreadPoolExecutor(max_workers=config.workers, thread_name_prefix="archive-scout") as pool:
             futures: dict[concurrent.futures.Future, sqlite3.Row] = {}
     
-            def submit_next() -> bool:
-                try:
-                    row = next(row_iter)
-                except StopIteration:
-                    return False
-                if stop_event.is_set():
-                    raise Stopped
+            def submit_available() -> None:
+                slots = max_inflight - len(futures)
+                if slots <= 0:
+                    return
+                rows: list[sqlite3.Row] = []
+                for _ in range(slots):
+                    try:
+                        row = next(row_iter)
+                    except StopIteration:
+                        break
+                    if stop_event.is_set():
+                        raise Stopped
+                    rows.append(row)
+                if not rows:
+                    return
+                now = utc_now()
                 with database:
-                    database.execute(
+                    database.executemany(
                         "UPDATE captures SET state='downloading',download_attempts=download_attempts+1,updated_at=? WHERE id=?",
-                        (utc_now(), row["id"]),
+                        ((now, int(row["id"])) for row in rows),
                     )
-                futures[pool.submit(fetch_parse_scan, row, config, jobs, client)] = row
-                return True
+                for row in rows:
+                    futures[pool.submit(fetch_parse_scan, row, config, jobs, client)] = row
     
-            while len(futures) < max_inflight and submit_next():
-                pass
+            submit_available()
             while futures:
                 if stop_event.is_set():
                     for pending in futures:
@@ -368,7 +397,6 @@ def download_archive(
                                 },
                             )
                         )
-                    while len(futures) < max_inflight and submit_next():
-                        pass
+                    submit_available()
     finally:
         client.close()

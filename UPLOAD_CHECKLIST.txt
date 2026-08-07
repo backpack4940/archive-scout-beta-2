@@ -1,22 +1,27 @@
-ARCHIVE SCOUT 3.0 BETA 1.6 UPLOAD CHECKLIST
+ARCHIVE SCOUT 3.0 BETA 2.2 BROWSER UPLOAD CHECKLIST
 
-1. Back up the current repository and one important Archive Scout project.
-2. Extract archive-scout-3.0-beta1.6-repository.zip.
-3. Open the archive-scout-3.0-beta1.6 folder.
-4. Reveal hidden files with Command + Shift + . on macOS.
-5. Upload the CONTENTS of that folder to the repository root.
-6. Confirm .github/workflows/build-and-release.yml and .github/workflows/tests.yml are present.
-7. Run the Tests workflow from the new main commit.
-8. Confirm all six OS/Python jobs pass.
-9. Configure Azure Artifact Signing before creating a public Windows tag.
-10. Run Build All Platforms from the newest main commit.
-11. Confirm the Windows signing step runs and build_windows.ps1 -SkipBuild -RequireSigned succeeds.
-12. Confirm ArchiveScout.exe Properties > Digital Signatures reports a valid signature.
-13. Smoke-test Windows, Linux, Intel macOS, and Apple Silicon macOS packages when available.
-14. Confirm the application icon appears in the window, taskbar/dock, and packaged application.
-15. Test Start date 09/01/2008 and End date 12/31/2009.
-16. Test the external embedded-media operation on saved pages containing at least one external image or video URL.
-17. Test the exact signed Windows ZIP with current Microsoft Defender definitions.
-18. Submit the signed executable to Microsoft if it is still incorrectly detected.
-19. Publish tag v3.0.0-beta.1.6.
-20. Confirm all six release assets are public and their checksums match.
+1. Back up the repository and one important Archive Scout project.
+2. Open the repository's .github/workflows folder in GitHub.
+3. Upload apply-beta2-2-performance-engine.yml without renaming it.
+4. Commit only that installer workflow to main.
+5. Open Actions and run Apply Beta 2.2 Performance Engine on main.
+6. Confirm the installer reports that 134 tests passed with no failures; the display-dependent test may be skipped on the installer runner.
+7. Confirm the installer benchmark reports 100,000 inserted CDX rows, unchanged_cdx_writes=0, and http_attempts=0.
+8. Confirm the installer commit contains only the documented Beta 2.2 source, test, packaging-metadata, and documentation paths. It must not contain build, dist, egg-info, __pycache__, or pyc files.
+9. Do not rerun an older Beta 2 or Beta 2.1 patch workflow against the Beta 2.2 source.
+10. Wait for the regular Tests workflow triggered by the new main commit.
+11. Confirm all eight OS/Python jobs pass: Windows, Linux, Intel macOS, and Apple Silicon macOS on Python 3.11 and 3.12.
+12. Run Build All Platforms manually from the newest green main commit.
+13. Confirm the packaged macOS startup probe succeeds before downloading the macOS artifact.
+14. Smoke-test the exact Windows x64, Linux x64, Intel macOS, and Apple Silicon macOS packages.
+15. On macOS, extract the ZIP fully, move Archive Scout.app into /Applications, and launch the installed copy.
+16. Test a normal index/download/scan project and confirm the interface remains responsive while work is active.
+17. Test Resume interrupted work after stopping a multi-page index.
+18. Test Rescan existing downloads with several thousand literal rules and verify existing review data remains intact.
+19. Test a large media file and confirm a failed or stopped transfer leaves no final file or stale .part file.
+20. Test included/excluded extensions, required/excluded keywords, regex, exact, case-sensitive, whole-word, and multiple keyword sets.
+21. Test project backup, restore, merge, repair, diagnostics, reports, notes, tags, and review statuses.
+22. Configure and verify Windows signing before creating a public release tag.
+23. Confirm Windows Properties > Digital Signatures reports a valid signature on the packaged executable.
+24. Run the exact signed Windows package through current Microsoft Defender definitions.
+25. Publish the Beta 2.2 tag only after the eight test jobs, native builds, startup probes, signatures, and physical smoke tests are complete.
